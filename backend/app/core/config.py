@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "2.0.0"
     DEBUG: bool = True
 
-    # 数据库
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/opera_coach"
+    # 数据库 (MVP 阶段使用 SQLite，后期可切换到 PostgreSQL)
+    DATABASE_URL: str = "sqlite:///./opera_coach.db"
 
     # 服务器
     HOST: str = "0.0.0.0"
