@@ -18,6 +18,7 @@ class SegmentSlice(Base):
     lyrics = Column(String(1000))
     commands = Column(String(2000))
     pitches = Column(JSON)  # 音高序列 JSON 数组
+    audio_url = Column(String(500))  # 切片音频文件 URL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # 关联

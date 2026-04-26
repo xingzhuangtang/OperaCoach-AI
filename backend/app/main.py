@@ -3,6 +3,8 @@ FastAPI 主应用
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -31,6 +33,11 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(api_router, prefix="/api/v1")
+
+# 静态文件服务
+UPLOAD_DIR = Path(settings.UPLOAD_DIR)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/")

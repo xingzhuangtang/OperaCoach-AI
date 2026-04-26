@@ -47,3 +47,56 @@ async def upload_audio(audio: UploadFile = File(...)):
 
     path = save_upload_file(audio, "audios")
     return {"audio_url": path, "filename": audio.filename}
+
+
+@router.post("/extract-audio")
+async def extract_audio(video_url: str):
+    """从视频提取音频"""
+    from app.processors.audio import AudioProcessor
+    
+    # 构建视频文件完整路径
+    video_path = UPLOAD_DIR / video_url.removeprefix("/uploads/")
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    
+    # 生成音频文件名
+    audio_filename = f"{video_path.stem}.wav"
+    audio_path = UPLOAD_DIR / "audios" / audio_filename
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        processor = AudioProcessor()
+        processor.extract_audio_from_video(str(video_path), str(audio_path))
+        return {"audio_url": f"/uploads/audios/{audio_filename}", "message": "提取成功"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/list")
+async def list_uploads():
+    """列出已上传文件"""
+    files = []
+    
+    # 视频文件
+    videos_dir = UPLOAD_DIR / "videos"
+    if videos_dir.exists():
+        for f in videos_dir.iterdir():
+            if f.is_file():
+                files.append({
+                    "name": f.name,
+                    "url": f"/uploads/videos/{f.name}",
+                    "type": "video"
+                })
+    
+    # 音频文件
+    audios_dir = UPLOAD_DIR / "audios"
+    if audios_dir.exists():
+        for f in audios_dir.iterdir():
+            if f.is_file():
+                files.append({
+                    "name": f.name,
+                    "url": f"/uploads/audios/{f.name}",
+                    "type": "audio"
+                })
+    
+    return files

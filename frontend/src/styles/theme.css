@@ -1,0 +1,118 @@
+/* Element Plus 国风主题覆盖 */
+
+:root {
+  /* 主色系 - 青蓝 */
+  --el-color-primary: #2b6cb0;
+  --el-color-primary-light-3: #4a8fd4;
+  --el-color-primary-light-5: #72abe4;
+  --el-color-primary-light-7: #99c3f0;
+  --el-color-primary-light-8: #b3d4f5;
+  --el-color-primary-light-9: #cce5fa;
+  --el-color-primary-dark-2: #1e4d80;
+  
+  /* 成功色 - 翠绿 */
+  --el-color-success: #38a169;
+  
+  /* 警告色 - 金色 */
+  --el-color-warning: #d69e2e;
+  
+  /* 危险色 */
+  --el-color-danger: #e53e3e;
+  
+  /* 文字颜色 */
+  --el-text-color-primary: #1a202c;
+  --el-text-color-regular: #4a5568;
+  --el-text-color-secondary: #718096;
+  
+  /* 背景色 */
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f7fafc;
+  
+  /* 边框 */
+  --el-border-color: #e2e8f0;
+  --el-border-color-light: #edf2f7;
+}
+
+/* 按钮样式覆盖 */
+.el-button--primary {
+  background: linear-gradient(135deg, #2b6cb0 0%, #4a8fd4 100%);
+  border: none;
+}
+
+.el-button--primary:hover {
+  background: linear-gradient(135deg, #1e4d80 0%, #2b6cb0 100%);
+}
+
+/* 输入框聚焦样式 */
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.3) !important;
+}
+
+/* 弹窗样式 */
+.el-dialog {
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(43, 108, 176, 0.15);
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid rgba(214, 158, 46, 0.2);
+}
+
+/* 消息提示 */
+.el-message {
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* 加载动画 */
+.el-loading-spinner .path {
+  stroke: #2b6cb0;
+}
+
+/* 分页器 */
+.el-pagination .el-pager li.is-active {
+  background: linear-gradient(135deg, #2b6cb0 0%, #4a8fd4 100%);
+  color: #fff;
+}
+
+/* 卡片 */
+.el-card {
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(43, 108, 176, 0.08);
+  border: 1px solid rgba(214, 158, 46, 0.15);
+}
+
+/* 标签 */
+.el-tag {
+  border-radius: 6px;
+}
+
+.el-tag--primary {
+  background: linear-gradient(135deg, rgba(43, 108, 176, 0.1) 0%, rgba(74, 143, 212, 0.1) 100%);
+  border-color: #2b6cb0;
+}
+
+/* 表格 */
+.el-table th.el-table__cell {
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  color: #2b6cb0;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: rgba(247, 250, 252, 0.5);
+}
+
+/* 导航菜单 */
+.el-menu {
+  border-right: none;
+}
+
+.el-menu-item:hover {
+  background: rgba(43, 108, 176, 0.1) !important;
+}
+
+.el-menu-item.is-active {
+  background: linear-gradient(135deg, rgba(43, 108, 176, 0.15) 0%, rgba(74, 143, 212, 0.1) 100%) !important;
+  color: #2b6cb0 !important;
+  border-right: 3px solid #d69e2e;
+}

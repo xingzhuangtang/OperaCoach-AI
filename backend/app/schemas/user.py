@@ -76,6 +76,7 @@ class SegmentSliceResponse(BaseModel):
     lyrics: Optional[str]
     commands: Optional[str]
     pitches: Optional[list]
+    audio_url: Optional[str]
 
     class Config:
         from_attributes = True

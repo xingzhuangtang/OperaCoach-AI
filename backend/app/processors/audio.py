@@ -19,7 +19,7 @@ class AudioProcessor:
     def extract_audio_from_video(self, video_path: str, output_path: str):
         """从视频提取音频"""
         try:
-            from moviepy.editor import VideoFileClip
+            from moviepy import VideoFileClip
             clip = VideoFileClip(video_path)
             if clip.audio is None:
                 raise ValueError("视频没有音轨")
@@ -33,10 +33,10 @@ class AudioProcessor:
 class AudioSlicer(AudioProcessor):
     """音频切片器"""
 
-    def slice_by_phrases(self, audio_path: str) -> List[Dict[str, Any]]:
+    def slice_by_phrases(self, audio_path: str, output_dir: str = None) -> List[Dict[str, Any]]:
         """
-        按乐句切片
-        返回: [{start_time, end_time, duration}, ...]
+        按乐句切片并生成实际音频文件
+        返回: [{start_time, end_time, duration, audio_url}, ...]
         """
         y, sr = self.load_audio(audio_path)
 
@@ -53,11 +53,29 @@ class AudioSlicer(AudioProcessor):
 
             # 只保留合理的片段 (1-15 秒)
             if 1.0 <= duration <= 15.0:
-                slices.append({
+                slice_data = {
                     "start_time": start,
                     "end_time": end,
                     "duration": duration,
-                })
+                }
+                
+                # 如果指定了输出目录，生成实际音频文件
+                if output_dir:
+                    from pathlib import Path
+                    import soundfile as sf
+                    
+                    output_path = Path(output_dir) / f"slice_{i+1}.wav"
+                    try:
+                        # 计算采样点范围
+                        start_sample = int(start * sr)
+                        end_sample = int(end * sr)
+                        slice_audio = y[start_sample:end_sample]
+                        sf.write(str(output_path), slice_audio, sr)
+                        slice_data["audio_url"] = f"/uploads/slices/slice_{i+1}.wav"
+                    except Exception as e:
+                        print(f"切片 {i+1} 生成失败: {e}")
+                
+                slices.append(slice_data)
 
         return slices
 
