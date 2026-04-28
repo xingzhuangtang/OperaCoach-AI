@@ -49,59 +49,99 @@ class AudioProcessor:
 
     def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
         """
-        使用本地 Whisper 模型提取音频歌词
+        使用阿里 Fun-ASR 1.5 (paraformer-realtime-v1) 提取音频歌词
         返回完整歌词文本
         """
-        import whisper
+        import dashscope
+        from dashscope.audio.asr import Recognition
+        from app.core.config import settings
+        import soundfile as sf
+        import librosa
+        from pathlib import Path
         
-        model = whisper.load_model(model_size)
+        dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # Whisper 需要 16kHz 单声道音频
-        audio = whisper.load_audio(audio_path)
+        # 转换音频为 Fun-ASR 要求的格式（16kHz 单声道 WAV）
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+        temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
+        sf.write(str(temp_path), y, 16000)
         
-        result = model.transcribe(audio, language='zh', fp16=False)
-        text = result.get("text", "")
-        
-        # 如果识别结果为空，尝试不使用语言限制
-        if not text.strip():
-            result = model.transcribe(audio, fp16=False)
-            text = result.get("text", "")
-        
-        return text
+        try:
+            # 使用 Recognition API（同步调用）
+            def callback(result):
+                pass  # 不需要回调
+            
+            recognition = Recognition(
+                model='paraformer-realtime-v1',
+                format='wav',
+                sample_rate=16000,
+                language_hints=['zh'],
+                callback=callback
+            )
+            
+            result = recognition.call(str(temp_path))
+            
+            if result.get('status_code') == 200 and result.get('output'):
+                sentences = result['output'].get('sentence', [])
+                # 合并所有句子为完整歌词
+                full_text = ' '.join([s['text'] for s in sentences])
+                return full_text
+            
+            return ""
+        finally:
+            # 清理临时文件
+            temp_path.unlink(missing_ok=True)
 
     def extract_lyrics_with_timestamps(self, audio_path: str, model_size: str = "small") -> List[Dict[str, Any]]:
         """
-        使用本地 Whisper 模型提取歌词及时间戳
+        使用阿里 Fun-ASR 1.5 提取歌词及时间戳
         返回: [{text, start, end}, ...]
         """
-        import whisper
+        import dashscope
+        from dashscope.audio.asr import Recognition
+        from app.core.config import settings
+        import soundfile as sf
+        import librosa
+        from pathlib import Path
         
-        model = whisper.load_model(model_size)
+        dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # Whisper 需要 16kHz 单声道音频
-        audio = whisper.load_audio(audio_path)
+        # 转换音频为 Fun-ASR 要求的格式（16kHz 单声道 WAV）
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+        temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
+        sf.write(str(temp_path), y, 16000)
         
-        result = model.transcribe(audio, language='zh', fp16=False, word_timestamps=False)
-        
-        segments = []
-        for segment in result.get("segments", []):
-            segments.append({
-                "text": segment["text"].strip(),
-                "start": segment["start"],
-                "end": segment["end"],
-            })
-        
-        # 如果识别结果为空，尝试不使用语言限制
-        if not segments:
-            result = model.transcribe(audio, fp16=False, word_timestamps=False)
-            for segment in result.get("segments", []):
-                segments.append({
-                    "text": segment["text"].strip(),
-                    "start": segment["start"],
-                    "end": segment["end"],
-                })
-        
-        return segments
+        try:
+            # 使用 Recognition API（同步调用）
+            def callback(result):
+                pass  # 不需要回调
+            
+            recognition = Recognition(
+                model='paraformer-realtime-v1',
+                format='wav',
+                sample_rate=16000,
+                language_hints=['zh'],
+                callback=callback
+            )
+            
+            result = recognition.call(str(temp_path))
+            
+            if result.get('status_code') == 200 and result.get('output'):
+                sentences = result['output'].get('sentence', [])
+                # 转换为统一格式
+                segments = []
+                for s in sentences:
+                    segments.append({
+                        "text": s['text'].strip(),
+                        "start": s['begin_time'] / 1000.0,  # ms -> s
+                        "end": s['end_time'] / 1000.0,
+                    })
+                return segments
+            
+            return []
+        finally:
+            # 清理临时文件
+            temp_path.unlink(missing_ok=True)
 
 
 class AudioSlicer(AudioProcessor):

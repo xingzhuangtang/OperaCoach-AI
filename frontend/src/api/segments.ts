@@ -9,3 +9,4 @@ export const createSegment = (data: { work_id: number; name: string; audio_url?:
   api.post<OperaSegment>('/segments', data)
 export const getSegmentDetail = (id: number) => api.get<OperaSegment>(`/segments/${id}`)
 export const sliceAudio = (id: number) => api.post<{ full_lyrics: string; slices: SegmentSlice[] }>(`/segments/${id}/slice`)
+export const extractLyrics = (id: number) => api.post<{ full_lyrics: string }>(`/segments/${id}/extract-lyrics`)

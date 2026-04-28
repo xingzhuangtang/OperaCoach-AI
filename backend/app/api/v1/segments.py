@@ -150,3 +150,44 @@ async def slice_audio(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{segment_id}/extract-lyrics")
+async def extract_lyrics(
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """提取音频歌词"""
+    from app.processors.audio import AudioProcessor
+    
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    if not segment.audio_url:
+        raise HTTPException(status_code=400, detail="唱段没有音频文件")
+
+    # 构建音频文件路径
+    from app.core.config import settings
+    from pathlib import Path
+    audio_path = Path(settings.UPLOAD_DIR) / segment.audio_url.removeprefix("/uploads/")
+    
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="音频文件不存在")
+
+    try:
+        # 提取完整歌词
+        processor = AudioProcessor()
+        full_lyrics = processor.extract_lyrics(str(audio_path))
+        
+        # 更新数据库
+        segment.lyrics = full_lyrics
+        db.commit()
+        
+        return {
+            "full_lyrics": full_lyrics,
+            "message": "歌词提取成功"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

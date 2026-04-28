@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
-import { getSegmentDetail, sliceAudio } from '@/api/segments'
+import { getSegmentDetail, sliceAudio, extractLyrics } from '@/api/segments'
 import { extractAudio } from '@/api/upload'
 import type { OperaSegment, SegmentSlice } from '@/types'
 
@@ -16,6 +16,7 @@ const loading = ref(false)
 const slicing = ref(false)
 const extracting = ref(false)
 const fullLyrics = ref("")
+const extractingLyrics = ref(false)
 
 const segmentId = parseInt(route.params.id as string)
 
@@ -29,6 +30,23 @@ const fetchDetail = async () => {
     // 已处理
   } finally {
     loading.value = false
+  }
+}
+
+const handleExtractLyrics = async () => {
+  if (!segment.value?.audio_url) {
+    ElMessage.warning('没有音频文件')
+    return
+  }
+  extractingLyrics.value = true
+  try {
+    const { data } = await extractLyrics(segmentId)
+    fullLyrics.value = data.full_lyrics
+    ElMessage.success('歌词提取成功')
+  } catch (e) {
+    // 已处理
+  } finally {
+    extractingLyrics.value = false
   }
 }
 
@@ -153,6 +171,15 @@ onMounted(() => {
           从视频提取音频
         </el-button>
         <el-button
+          v-if="segment.audio_url"
+          type="success"
+          class="dreamy-btn"
+          :loading="extractingLyrics"
+          @click="handleExtractLyrics"
+        >
+          提取歌词
+        </el-button>
+        <el-button
           type="primary"
           class="dreamy-btn"
           :loading="slicing"
@@ -163,9 +190,10 @@ onMounted(() => {
       </div>
 
       <!-- 完整歌词 -->
-      <div v-if="fullLyrics" class="lyrics-section dreamy-card">
+      <div v-if="segment.audio_url" class="lyrics-section dreamy-card">
         <h3>完整歌词</h3>
-        <div class="lyrics-content">{{ fullLyrics }}</div>
+        <div v-if="fullLyrics" class="lyrics-content">{{ fullLyrics }}</div>
+        <el-empty v-else description="点击'提取歌词'按钮识别音频中的歌词" :image-size="80" />
       </div>
 
       <!-- 切片列表 -->
