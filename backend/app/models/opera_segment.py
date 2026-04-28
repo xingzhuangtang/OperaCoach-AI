@@ -15,6 +15,7 @@ class OperaSegment(Base):
     name = Column(String(200), nullable=False)
     video_url = Column(String(500))
     audio_url = Column(String(500))
+    lyrics = Column(String(5000))  # 完整歌词
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

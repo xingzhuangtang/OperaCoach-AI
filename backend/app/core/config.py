@@ -28,6 +28,9 @@ class Settings(BaseSettings):
 
     # Whisper 模型
     WHISPER_MODEL_SIZE: str = "small"
+    
+    # 阿里 DashScope API（用于歌词识别）
+    DASHSCOPE_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

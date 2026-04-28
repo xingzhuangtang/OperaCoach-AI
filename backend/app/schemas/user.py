@@ -62,6 +62,7 @@ class OperaSegmentResponse(BaseModel):
     name: str
     video_url: Optional[str]
     audio_url: Optional[str]
+    lyrics: Optional[str]
 
     class Config:
         from_attributes = True
@@ -89,6 +90,7 @@ class OperaSegmentDetailResponse(BaseModel):
     name: str
     video_url: Optional[str]
     audio_url: Optional[str]
+    lyrics: Optional[str]
     slices: List[SegmentSliceResponse] = []
 
     class Config:

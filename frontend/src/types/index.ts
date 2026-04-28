@@ -18,6 +18,8 @@ export interface OperaSegment {
   name: string
   video_url: string | null
   audio_url: string | null
+  lyrics: string | null
+  slices: SegmentSlice[]
 }
 
 export interface SegmentSlice {

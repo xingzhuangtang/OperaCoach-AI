@@ -15,6 +15,7 @@ const slices = ref<SegmentSlice[]>([])
 const loading = ref(false)
 const slicing = ref(false)
 const extracting = ref(false)
+const fullLyrics = ref("")
 
 const segmentId = parseInt(route.params.id as string)
 
@@ -35,9 +36,10 @@ const handleSlice = async () => {
   slicing.value = true
   try {
     const { data } = await sliceAudio(segmentId)
-    ElMessage.success(`切片成功，共 ${data.length} 个片段`)
-    // 刷新详情获取切片列表
-    await fetchDetail()
+    ElMessage.success(`切片成功，共 ${data.slices.length} 个片段`)
+    // 更新完整歌词和切片列表
+    fullLyrics.value = data.full_lyrics
+    slices.value = data.slices
   } catch (e) {
     // 已处理
   } finally {
@@ -160,6 +162,12 @@ onMounted(() => {
         </el-button>
       </div>
 
+      <!-- 完整歌词 -->
+      <div v-if="fullLyrics" class="lyrics-section dreamy-card">
+        <h3>完整歌词</h3>
+        <div class="lyrics-content">{{ fullLyrics }}</div>
+      </div>
+
       <!-- 切片列表 -->
       <div class="slices-section">
         <h3>切片列表 ({{ slices.length }})</h3>
@@ -195,7 +203,11 @@ onMounted(() => {
               <span v-else style="color: #999">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="lyrics" label="歌词" />
+          <el-table-column prop="lyrics" label="歌词" min-width="200">
+            <template #default="{ row }">
+              <div class="slice-lyrics">{{ row.lyrics || '-' }}</div>
+            </template>
+          </el-table-column>
           <el-table-column prop="commands" label="指令" />
         </el-table>
       </div>
@@ -275,12 +287,40 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 
+.lyrics-section {
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.lyrics-section h3 {
+  margin-bottom: 16px;
+}
+
+.lyrics-content {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  color: #4a5568;
+  font-size: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 12px;
+  background: rgba(247, 250, 252, 0.5);
+  border-radius: 8px;
+}
+
 .slices-section h3 {
   margin-bottom: 16px;
 }
 
 .slice-audio {
   border-radius: 4px;
+}
+
+.slice-lyrics {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: #4a5568;
+  font-size: 14px;
 }
 
 .loading-wrapper {

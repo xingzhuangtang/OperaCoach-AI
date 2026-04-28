@@ -29,6 +29,80 @@ class AudioProcessor:
         except ImportError:
             raise RuntimeError("请安装 moviepy: pip install moviepy")
 
+    def _prepare_audio_for_api(self, audio_path: str) -> str:
+        """
+        将音频转换为 Fun-ASR 要求的格式（16kHz 单声道 WAV）
+        返回转换后的文件路径
+        """
+        import soundfile as sf
+        import librosa
+        from pathlib import Path
+        
+        # 加载音频并转换为 16kHz 单声道
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+        
+        # 保存到临时文件
+        output_path = Path(audio_path).parent / f"temp_{Path(audio_path).stem}_16k.wav"
+        sf.write(str(output_path), y, 16000)
+        
+        return str(output_path)
+
+    def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
+        """
+        使用本地 Whisper 模型提取音频歌词
+        返回完整歌词文本
+        """
+        import whisper
+        
+        model = whisper.load_model(model_size)
+        
+        # Whisper 需要 16kHz 单声道音频
+        audio = whisper.load_audio(audio_path)
+        
+        result = model.transcribe(audio, language='zh', fp16=False)
+        text = result.get("text", "")
+        
+        # 如果识别结果为空，尝试不使用语言限制
+        if not text.strip():
+            result = model.transcribe(audio, fp16=False)
+            text = result.get("text", "")
+        
+        return text
+
+    def extract_lyrics_with_timestamps(self, audio_path: str, model_size: str = "small") -> List[Dict[str, Any]]:
+        """
+        使用本地 Whisper 模型提取歌词及时间戳
+        返回: [{text, start, end}, ...]
+        """
+        import whisper
+        
+        model = whisper.load_model(model_size)
+        
+        # Whisper 需要 16kHz 单声道音频
+        audio = whisper.load_audio(audio_path)
+        
+        result = model.transcribe(audio, language='zh', fp16=False, word_timestamps=False)
+        
+        segments = []
+        for segment in result.get("segments", []):
+            segments.append({
+                "text": segment["text"].strip(),
+                "start": segment["start"],
+                "end": segment["end"],
+            })
+        
+        # 如果识别结果为空，尝试不使用语言限制
+        if not segments:
+            result = model.transcribe(audio, fp16=False, word_timestamps=False)
+            for segment in result.get("segments", []):
+                segments.append({
+                    "text": segment["text"].strip(),
+                    "start": segment["start"],
+                    "end": segment["end"],
+                })
+        
+        return segments
+
 
 class AudioSlicer(AudioProcessor):
     """音频切片器"""
