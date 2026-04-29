@@ -64,13 +64,12 @@ class AudioProcessor:
         
         dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # 1. 加载音频并提取谐波部分（减少打击乐干扰，保留人声旋律）
+        # 1. 加载音频为 16kHz 单声道
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        y_harmonic = librosa.effects.harmonic(y)
         
         # 2. 保存到临时文件
         temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
-        sf.write(str(temp_path), y_harmonic, 16000)
+        sf.write(str(temp_path), y, 16000)
         
         try:
             # 3. 上传文件
