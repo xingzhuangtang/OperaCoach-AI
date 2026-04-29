@@ -47,56 +47,137 @@ class AudioProcessor:
         
         return str(output_path)
 
-    def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
+    def _call_fun_asr_v2(self, audio_path: str) -> dict:
         """
-        使用阿里 Fun-ASR 1.5 (paraformer-realtime-v1) 提取音频歌词
-        返回完整歌词文本
+        调用阿里 Fun-ASR 1.5 离线版 (paraformer-v2)
+        这是一个更准确的模型，适合戏曲/音乐识别
         """
         import dashscope
-        from dashscope.audio.asr import Recognition
+        from dashscope import Files
+        from dashscope.audio.asr import Transcription
         from app.core.config import settings
+        import requests
+        import time
         import soundfile as sf
         import librosa
         from pathlib import Path
         
         dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # 转换音频为 Fun-ASR 要求的格式（16kHz 单声道 WAV）
+        # 1. 转换音频为 16kHz 单声道
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
+        temp_path = Path(audio_path).parent / f"temp_funasr_v2_{Path(audio_path).stem}.wav"
         sf.write(str(temp_path), y, 16000)
         
         try:
-            # 使用 Recognition API（同步调用）
-            def callback(result):
-                pass  # 不需要回调
-            
-            recognition = Recognition(
-                model='paraformer-realtime-v1',
-                format='wav',
-                sample_rate=16000,
-                language_hints=['zh'],
-                callback=callback
+            # 2. 上传文件
+            upload_result = Files.upload(
+                file_path=str(temp_path),
+                purpose='transcription'
             )
             
-            result = recognition.call(str(temp_path))
+            if upload_result.get('status_code') != 200:
+                return {"status": "failed", "error": f"Upload failed: {upload_result}"}
+                
+            file_id = upload_result['output']['uploaded_files'][0]['file_id']
             
-            if result.get('status_code') == 200 and result.get('output'):
-                sentences = result['output'].get('sentence', [])
-                # 合并所有句子为完整歌词
-                full_text = ' '.join([s['text'] for s in sentences])
-                return full_text
+            # 3. 获取文件 URL (必须通过 Files.get 获取签名 URL)
+            file_info = Files.get(file_id=file_id)
+            if file_info.get('status_code') != 200:
+                return {"status": "failed", "error": "Get file info failed"}
+                
+            file_url = file_info['output']['url']
             
-            return ""
+            # 4. 调用 Transcription API (离线版)
+            response = Transcription.async_call(
+                model='paraformer-v2',
+                file_urls=[file_url],
+                language_hints=['zh'],
+                channel_id=[0],
+                diarization_enabled=False,
+                sample_rate=16000
+            )
+            
+            if response.get('status_code') != 200:
+                return {"status": "failed", "error": f"Transcription call failed: {response}"}
+                
+            task_id = response['output']['task_id']
+            
+            # 5. 轮询结果
+            for _ in range(60):
+                task_response = Transcription.fetch(task=task_id)
+                status = task_response['output']['task_status']
+                
+                if status == 'SUCCEEDED':
+                    # 6. 获取转录结果 URL
+                    result_url = task_response['output']['results'][0].get('transcription_url')
+                    if not result_url:
+                        return {"status": "failed", "error": "No transcription URL"}
+                        
+                    # 7. 下载并解析结果 JSON
+                    result_resp = requests.get(result_url)
+                    if result_resp.status_code != 200:
+                        return {"status": "failed", "error": "Failed to download result"}
+                        
+                    result_data = result_resp.json()
+                    transcripts = result_data.get('transcripts', [])
+                    
+                    if not transcripts:
+                        return {"status": "success", "sentences": []}
+                        
+                    sentences = transcripts[0].get('sentences', [])
+                    formatted_sentences = []
+                    for s in sentences:
+                        formatted_sentences.append({
+                            "text": s['text'].strip(),
+                            "start": s['begin_time'] / 1000.0,
+                            "end": s['end_time'] / 1000.0,
+                        })
+                    
+                    return {"status": "success", "sentences": formatted_sentences}
+                
+                elif status == 'FAILED':
+                    error_msg = task_response['output'].get('message', 'Unknown error')
+                    return {"status": "failed", "error": error_msg}
+                
+                time.sleep(2)
+                
+            return {"status": "failed", "error": "Timeout"}
+            
+        except Exception as e:
+            return {"status": "failed", "error": str(e)}
         finally:
-            # 清理临时文件
             temp_path.unlink(missing_ok=True)
+
+    def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
+        """
+        使用阿里 Fun-ASR 1.5 (离线版 paraformer-v2) 提取音频歌词
+        此模型准确率高，适合戏曲/音乐
+        """
+        result = self._call_fun_asr_v2(audio_path)
+        
+        if result.get('status') == 'success':
+            return ' '.join([s['text'] for s in result['sentences']])
+        
+        # Fallback
+        print(f"Fun-ASR v2 failed: {result.get('error')}, using realtime fallback")
+        return self._extract_lyrics_realtime(audio_path)
 
     def extract_lyrics_with_timestamps(self, audio_path: str, model_size: str = "small") -> List[Dict[str, Any]]:
         """
-        使用阿里 Fun-ASR 1.5 提取歌词及时间戳
-        返回: [{text, start, end}, ...]
+        使用阿里 Fun-ASR 1.5 (离线版 paraformer-v2) 提取歌词及时间戳
         """
+        result = self._call_fun_asr_v2(audio_path)
+        
+        if result.get('status') == 'success':
+            return result['sentences']
+        
+        # Fallback
+        print(f"Fun-ASR v2 failed: {result.get('error')}, using realtime fallback")
+        return self._extract_lyrics_realtime_with_timestamps(audio_path)
+
+    def _extract_lyrics_realtime(self, audio_path: str) -> str:
+        """备用：实时版模型 (paraformer-realtime-v2)"""
         import dashscope
         from dashscope.audio.asr import Recognition
         from app.core.config import settings
@@ -106,41 +187,66 @@ class AudioProcessor:
         
         dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # 转换音频为 Fun-ASR 要求的格式（16kHz 单声道 WAV）
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
+        temp_path = Path(audio_path).parent / f"temp_realtime_{Path(audio_path).stem}.wav"
         sf.write(str(temp_path), y, 16000)
         
         try:
-            # 使用 Recognition API（同步调用）
-            def callback(result):
-                pass  # 不需要回调
-            
             recognition = Recognition(
-                model='paraformer-realtime-v1',
+                model='paraformer-realtime-v2',
                 format='wav',
                 sample_rate=16000,
                 language_hints=['zh'],
-                callback=callback
+                callback=lambda x: None
             )
             
             result = recognition.call(str(temp_path))
             
             if result.get('status_code') == 200 and result.get('output'):
                 sentences = result['output'].get('sentence', [])
-                # 转换为统一格式
+                return ' '.join([s['text'] for s in sentences])
+            return ""
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def _extract_lyrics_realtime_with_timestamps(self, audio_path: str) -> List[Dict[str, Any]]:
+        """备用：实时版模型 (带时间戳)"""
+        import dashscope
+        from dashscope.audio.asr import Recognition
+        from app.core.config import settings
+        import soundfile as sf
+        import librosa
+        from pathlib import Path
+        
+        dashscope.api_key = settings.DASHSCOPE_API_KEY
+        
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+        temp_path = Path(audio_path).parent / f"temp_realtime_{Path(audio_path).stem}.wav"
+        sf.write(str(temp_path), y, 16000)
+        
+        try:
+            recognition = Recognition(
+                model='paraformer-realtime-v2',
+                format='wav',
+                sample_rate=16000,
+                language_hints=['zh'],
+                callback=lambda x: None
+            )
+            
+            result = recognition.call(str(temp_path))
+            
+            if result.get('status_code') == 200 and result.get('output'):
+                sentences = result['output'].get('sentence', [])
                 segments = []
                 for s in sentences:
                     segments.append({
                         "text": s['text'].strip(),
-                        "start": s['begin_time'] / 1000.0,  # ms -> s
+                        "start": s['begin_time'] / 1000.0,
                         "end": s['end_time'] / 1000.0,
                     })
                 return segments
-            
             return []
         finally:
-            # 清理临时文件
             temp_path.unlink(missing_ok=True)
 
 
