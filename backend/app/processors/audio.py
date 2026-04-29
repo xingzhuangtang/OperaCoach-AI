@@ -49,8 +49,8 @@ class AudioProcessor:
 
     def _call_fun_asr_v2(self, audio_path: str) -> dict:
         """
-        调用阿里 Fun-ASR 1.5 离线版 (paraformer-v2)
-        这是一个更准确的模型，适合戏曲/音乐识别
+        调用阿里 Fun-ASR paraformer-v1 (经验证对戏曲识别效果更好)
+        注意：paraformer-v2 对戏曲识别极差（只识别出1句），v1 能识别出更多内容
         """
         import dashscope
         from dashscope import Files
@@ -64,13 +64,16 @@ class AudioProcessor:
         
         dashscope.api_key = settings.DASHSCOPE_API_KEY
         
-        # 1. 转换音频为 16kHz 单声道
+        # 1. 加载音频并提取谐波部分（减少打击乐干扰，保留人声旋律）
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        temp_path = Path(audio_path).parent / f"temp_funasr_v2_{Path(audio_path).stem}.wav"
-        sf.write(str(temp_path), y, 16000)
+        y_harmonic = librosa.effects.harmonic(y)
+        
+        # 2. 保存到临时文件
+        temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
+        sf.write(str(temp_path), y_harmonic, 16000)
         
         try:
-            # 2. 上传文件
+            # 3. 上传文件
             upload_result = Files.upload(
                 file_path=str(temp_path),
                 purpose='transcription'
@@ -81,16 +84,16 @@ class AudioProcessor:
                 
             file_id = upload_result['output']['uploaded_files'][0]['file_id']
             
-            # 3. 获取文件 URL (必须通过 Files.get 获取签名 URL)
+            # 4. 获取文件 URL
             file_info = Files.get(file_id=file_id)
             if file_info.get('status_code') != 200:
                 return {"status": "failed", "error": "Get file info failed"}
                 
             file_url = file_info['output']['url']
             
-            # 4. 调用 Transcription API (离线版)
+            # 5. 调用 Transcription API - 使用 paraformer-v1（对戏曲识别更好）
             response = Transcription.async_call(
-                model='paraformer-v2',
+                model='paraformer-v1',
                 file_urls=[file_url],
                 language_hints=['zh'],
                 channel_id=[0],
@@ -103,18 +106,16 @@ class AudioProcessor:
                 
             task_id = response['output']['task_id']
             
-            # 5. 轮询结果
+            # 6. 轮询结果
             for _ in range(60):
                 task_response = Transcription.fetch(task=task_id)
                 status = task_response['output']['task_status']
                 
                 if status == 'SUCCEEDED':
-                    # 6. 获取转录结果 URL
                     result_url = task_response['output']['results'][0].get('transcription_url')
                     if not result_url:
                         return {"status": "failed", "error": "No transcription URL"}
                         
-                    # 7. 下载并解析结果 JSON
                     result_resp = requests.get(result_url)
                     if result_resp.status_code != 200:
                         return {"status": "failed", "error": "Failed to download result"}
@@ -151,8 +152,8 @@ class AudioProcessor:
 
     def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
         """
-        使用阿里 Fun-ASR 1.5 (离线版 paraformer-v2) 提取音频歌词
-        此模型准确率高，适合戏曲/音乐
+        使用阿里 Fun-ASR paraformer-v1 提取音频歌词
+        注意：paraformer-v1 对戏曲/唱歌识别效果优于 v2
         """
         result = self._call_fun_asr_v2(audio_path)
         
@@ -160,12 +161,13 @@ class AudioProcessor:
             return ' '.join([s['text'] for s in result['sentences']])
         
         # Fallback
-        print(f"Fun-ASR v2 failed: {result.get('error')}, using realtime fallback")
+        print(f"Fun-ASR failed: {result.get('error')}, using realtime fallback")
         return self._extract_lyrics_realtime(audio_path)
 
     def extract_lyrics_with_timestamps(self, audio_path: str, model_size: str = "small") -> List[Dict[str, Any]]:
         """
-        使用阿里 Fun-ASR 1.5 (离线版 paraformer-v2) 提取歌词及时间戳
+        使用阿里 Fun-ASR paraformer-v1 提取歌词及时间戳
+        注意：paraformer-v1 对戏曲/唱歌识别效果优于 v2
         """
         result = self._call_fun_asr_v2(audio_path)
         
@@ -173,7 +175,7 @@ class AudioProcessor:
             return result['sentences']
         
         # Fallback
-        print(f"Fun-ASR v2 failed: {result.get('error')}, using realtime fallback")
+        print(f"Fun-ASR failed: {result.get('error')}, using realtime fallback")
         return self._extract_lyrics_realtime_with_timestamps(audio_path)
 
     def _extract_lyrics_realtime(self, audio_path: str) -> str:
