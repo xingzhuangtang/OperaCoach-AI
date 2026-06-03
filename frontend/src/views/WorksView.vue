@@ -3,7 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
-import { listWorks, createWork } from '@/api/segments'
+import { listWorks, createWork, deleteWork } from '@/api/segments'
 import type { OperaWork } from '@/types'
 
 const router = useRouter()
@@ -64,7 +64,26 @@ const handleLogout = () => {
 }
 
 const handleWorkClick = (work: OperaWork) => {
-  router.push(`/segment/${work.id}`)
+  router.push(`/works/${work.id}/segments`)
+}
+
+const handleDeleteWork = async (work: OperaWork) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除作品"${work.name}"吗？关联的唱段和切片也将被删除。`,
+      '删除作品',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    await deleteWork(work.id)
+    ElMessage.success('删除成功')
+    await fetchWorks()
+  } catch (e) {
+    // 用户取消或已处理
+  }
 }
 
 onMounted(() => {
@@ -115,7 +134,18 @@ onMounted(() => {
           class="work-card dreamy-card"
           @click="handleWorkClick(work)"
         >
-          <h3>{{ work.name }}</h3>
+          <div class="work-card-header">
+            <h3>{{ work.name }}</h3>
+            <el-button
+              type="danger"
+              size="small"
+              text
+              class="delete-btn"
+              @click.stop="handleDeleteWork(work)"
+            >
+              删除作品
+            </el-button>
+          </div>
           <el-tag v-if="work.category" type="primary" size="small">
             {{ work.category }}
           </el-tag>
@@ -223,6 +253,27 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 18px;
   color: #1a202c;
+}
+
+.work-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.work-card-header h3 {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.delete-btn {
+  flex-shrink: 0;
+  color: #e53e3e;
+}
+
+.delete-btn:hover {
+  color: #c53030;
 }
 
 .description {

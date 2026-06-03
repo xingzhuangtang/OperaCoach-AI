@@ -49,8 +49,8 @@ class AudioProcessor:
 
     def _call_fun_asr_v2(self, audio_path: str) -> dict:
         """
-        调用阿里 Fun-ASR paraformer-v1 (经验证对戏曲识别效果更好)
-        注意：paraformer-v2 对戏曲识别极差（只识别出1句），v1 能识别出更多内容
+        调用阿里 Fun-ASR 2026年4月更新的大模型版本
+        全面支持汉语传统七大方言体系，对戏曲识别效果更好
         """
         import dashscope
         from dashscope import Files
@@ -61,70 +61,70 @@ class AudioProcessor:
         import soundfile as sf
         import librosa
         from pathlib import Path
-        
+
         dashscope.api_key = settings.DASHSCOPE_API_KEY
-        
+
         # 1. 加载音频为 16kHz 单声道
         y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        
+
         # 2. 保存到临时文件
         temp_path = Path(audio_path).parent / f"temp_funasr_{Path(audio_path).stem}.wav"
         sf.write(str(temp_path), y, 16000)
-        
+
         try:
             # 3. 上传文件
             upload_result = Files.upload(
                 file_path=str(temp_path),
                 purpose='transcription'
             )
-            
+
             if upload_result.get('status_code') != 200:
                 return {"status": "failed", "error": f"Upload failed: {upload_result}"}
-                
+
             file_id = upload_result['output']['uploaded_files'][0]['file_id']
-            
+
             # 4. 获取文件 URL
             file_info = Files.get(file_id=file_id)
             if file_info.get('status_code') != 200:
                 return {"status": "failed", "error": "Get file info failed"}
-                
+
             file_url = file_info['output']['url']
-            
-            # 5. 调用 Transcription API - 使用 paraformer-v1（对戏曲识别更好）
+
+            # 5. 调用 Transcription API - 使用 2026年4月更新的 Fun-ASR 大模型
             response = Transcription.async_call(
-                model='paraformer-v1',
+                model='fun-asr',
                 file_urls=[file_url],
                 language_hints=['zh'],
                 channel_id=[0],
                 diarization_enabled=False,
                 sample_rate=16000
             )
-            
+
             if response.get('status_code') != 200:
                 return {"status": "failed", "error": f"Transcription call failed: {response}"}
-                
+
             task_id = response['output']['task_id']
-            
+
             # 6. 轮询结果
             for _ in range(60):
                 task_response = Transcription.fetch(task=task_id)
                 status = task_response['output']['task_status']
-                
+
                 if status == 'SUCCEEDED':
                     result_url = task_response['output']['results'][0].get('transcription_url')
                     if not result_url:
                         return {"status": "failed", "error": "No transcription URL"}
-                        
+
                     result_resp = requests.get(result_url)
                     if result_resp.status_code != 200:
                         return {"status": "failed", "error": "Failed to download result"}
-                        
+
                     result_data = result_resp.json()
                     transcripts = result_data.get('transcripts', [])
-                    
+
                     if not transcripts:
                         return {"status": "success", "sentences": []}
-                        
+
                     sentences = transcripts[0].get('sentences', [])
                     formatted_sentences = []
                     for s in sentences:
@@ -133,17 +133,17 @@ class AudioProcessor:
                             "start": s['begin_time'] / 1000.0,
                             "end": s['end_time'] / 1000.0,
                         })
-                    
+
                     return {"status": "success", "sentences": formatted_sentences}
-                
+
                 elif status == 'FAILED':
                     error_msg = task_response['output'].get('message', 'Unknown error')
                     return {"status": "failed", "error": error_msg}
-                
+
                 time.sleep(2)
-                
+
             return {"status": "failed", "error": "Timeout"}
-            
+
         except Exception as e:
             return {"status": "failed", "error": str(e)}
         finally:
@@ -151,104 +151,138 @@ class AudioProcessor:
 
     def extract_lyrics(self, audio_path: str, model_size: str = "small") -> str:
         """
-        使用阿里 Fun-ASR paraformer-v1 提取音频歌词
-        注意：paraformer-v1 对戏曲/唱歌识别效果优于 v2
+        使用阿里 Fun-ASR 2026年4月更新的大模型提取音频歌词
+        全面支持汉语传统七大方言体系，对戏曲识别效果更好
         """
         result = self._call_fun_asr_v2(audio_path)
-        
+
         if result.get('status') == 'success':
             return ' '.join([s['text'] for s in result['sentences']])
-        
-        # Fallback
-        print(f"Fun-ASR failed: {result.get('error')}, using realtime fallback")
-        return self._extract_lyrics_realtime(audio_path)
+
+        raise RuntimeError(f"Fun-ASR 识别失败: {result.get('error')}")
 
     def extract_lyrics_with_timestamps(self, audio_path: str, model_size: str = "small") -> List[Dict[str, Any]]:
         """
-        使用阿里 Fun-ASR paraformer-v1 提取歌词及时间戳
-        注意：paraformer-v1 对戏曲/唱歌识别效果优于 v2
+        使用阿里 Fun-ASR 2026年4月更新的大模型提取歌词及时间戳
+        全面支持汉语传统七大方言体系，对戏曲识别效果更好
         """
         result = self._call_fun_asr_v2(audio_path)
-        
+
         if result.get('status') == 'success':
             return result['sentences']
-        
-        # Fallback
-        print(f"Fun-ASR failed: {result.get('error')}, using realtime fallback")
-        return self._extract_lyrics_realtime_with_timestamps(audio_path)
 
-    def _extract_lyrics_realtime(self, audio_path: str) -> str:
-        """备用：实时版模型 (paraformer-realtime-v2)"""
-        import dashscope
-        from dashscope.audio.asr import Recognition
-        from app.core.config import settings
-        import soundfile as sf
-        import librosa
-        from pathlib import Path
-        
-        dashscope.api_key = settings.DASHSCOPE_API_KEY
-        
-        y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        temp_path = Path(audio_path).parent / f"temp_realtime_{Path(audio_path).stem}.wav"
-        sf.write(str(temp_path), y, 16000)
-        
-        try:
-            recognition = Recognition(
-                model='paraformer-realtime-v2',
-                format='wav',
-                sample_rate=16000,
-                language_hints=['zh'],
-                callback=lambda x: None
-            )
-            
-            result = recognition.call(str(temp_path))
-            
-            if result.get('status_code') == 200 and result.get('output'):
-                sentences = result['output'].get('sentence', [])
-                return ' '.join([s['text'] for s in sentences])
-            return ""
-        finally:
-            temp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Fun-ASR 识别失败: {result.get('error')}")
 
-    def _extract_lyrics_realtime_with_timestamps(self, audio_path: str) -> List[Dict[str, Any]]:
-        """备用：实时版模型 (带时间戳)"""
-        import dashscope
-        from dashscope.audio.asr import Recognition
-        from app.core.config import settings
-        import soundfile as sf
-        import librosa
+    def separate_vocals(self, audio_path: str, output_dir: str = None) -> Dict[str, str]:
+        """
+        使用 Demucs 分离人声和伴奏
+        返回: {"vocal_path": "...", "accompaniment_path": "..."}
+        """
+        import subprocess
         from pathlib import Path
-        
-        dashscope.api_key = settings.DASHSCOPE_API_KEY
-        
-        y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        temp_path = Path(audio_path).parent / f"temp_realtime_{Path(audio_path).stem}.wav"
-        sf.write(str(temp_path), y, 16000)
-        
+        from app.core.config import settings
+
+        if output_dir is None:
+            output_dir = str(Path(audio_path).parent / "separated")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
         try:
-            recognition = Recognition(
-                model='paraformer-realtime-v2',
-                format='wav',
-                sample_rate=16000,
-                language_hints=['zh'],
-                callback=lambda x: None
+            # 调用 demucs CLI
+            result = subprocess.run(
+                [
+                    "demucs",
+                    "--two-stems=vocals",
+                    "-n", settings.UVR_MODEL,
+                    "--device", settings.UVR_DEVICE,
+                    "-o", output_dir,
+                    audio_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 分钟超时
             )
-            
-            result = recognition.call(str(temp_path))
-            
-            if result.get('status_code') == 200 and result.get('output'):
-                sentences = result['output'].get('sentence', [])
-                segments = []
-                for s in sentences:
-                    segments.append({
-                        "text": s['text'].strip(),
-                        "start": s['begin_time'] / 1000.0,
-                        "end": s['end_time'] / 1000.0,
-                    })
-                return segments
+
+            if result.returncode != 0:
+                raise RuntimeError(f"Demucs 分离失败: {result.stderr}")
+
+            # Demucs 输出路径：output_dir/htdemucs/<filename>/vocals.wav 和 no_vocals.wav
+            audio_name = Path(audio_path).stem
+            separated_dir = Path(output_dir) / settings.UVR_MODEL / audio_name
+
+            vocal_path = separated_dir / "vocals.wav"
+            accompaniment_path = separated_dir / "no_vocals.wav"
+
+            if not vocal_path.exists():
+                raise RuntimeError(f"分离完成但未找到人声文件: {vocal_path}")
+
+            return {
+                "vocal_path": str(vocal_path),
+                "accompaniment_path": str(accompaniment_path),
+            }
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Demucs 分离超时（>10 分钟）")
+        except FileNotFoundError:
+            raise RuntimeError("未找到 demucs 命令，请安装: pip install demucs")
+
+    def slice_by_fun_asr_sentences(self, audio_path: str, output_dir: str = None) -> List[Dict[str, Any]]:
+        """
+        基于 Fun-ASR 识别结果的句子级切片
+        1. 调用 _call_fun_asr_v2() 获取带时间戳的句子
+        2. 按句子时间戳切分音频
+        3. 生成独立音频文件
+        返回: [{start_time, end_time, lyrics, audio_url}, ...]
+        """
+        import soundfile as sf
+        from pathlib import Path
+
+        if output_dir is None:
+            output_dir = str(Path(audio_path).parent / "funasr_slices")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # 1. 获取句子级时间戳
+        sentences = self.extract_lyrics_with_timestamps(audio_path)
+
+        if not sentences:
             return []
-        finally:
-            temp_path.unlink(missing_ok=True)
+
+        # 2. 加载完整音频
+        y, sr = self.load_audio(audio_path)
+
+        # 3. 按句子时间戳切片
+        slices = []
+        for i, sentence in enumerate(sentences):
+            start_time = sentence["start"]
+            end_time = sentence["end"]
+            lyrics = sentence["text"]
+
+            # 计算采样点范围
+            start_sample = int(start_time * sr)
+            end_sample = int(end_time * sr)
+
+            # 确保范围有效
+            if start_sample >= end_sample or start_sample >= len(y):
+                continue
+
+            end_sample = min(end_sample, len(y))
+
+            # 提取切片音频
+            slice_audio = y[start_sample:end_sample]
+
+            # 保存切片音频
+            output_path = Path(output_dir) / f"sentence_{i+1}.wav"
+            sf.write(str(output_path), slice_audio, sr)
+
+            slices.append({
+                "start_time": start_time,
+                "end_time": end_time,
+                "lyrics": lyrics,
+                "audio_url": f"/uploads/funasr_slices/sentence_{i+1}.wav",
+            })
+
+        return slices
 
 
 class AudioSlicer(AudioProcessor):

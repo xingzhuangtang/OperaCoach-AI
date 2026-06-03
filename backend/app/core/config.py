@@ -32,6 +32,20 @@ class Settings(BaseSettings):
     # 阿里 DashScope API（用于歌词识别）
     DASHSCOPE_API_KEY: str = ""
 
+    # Demucs 音频分离（UVR5 替代方案）
+    UVR_MODEL: str = "htdemucs"
+    UVR_DEVICE: str = "cpu"
+
+    # 衬字映射表（数字简谱 -> 衬字语气词）
+    # 5 个最顺口的单字：1=啊, 2=哎, 3=咦, 4=呦, 5=呜
+    CHENZI_MAPPING: dict = {
+        "1": "啊",
+        "2": "哎",
+        "3": "咦",
+        "4": "呦",
+        "5": "呜",
+    }
+
     class Config:
         env_file = ".env"
 

@@ -1,67 +1,46 @@
-# AGENTS.md — OperaCoach-AI V2 (MVP)
+# AGENTS.md
 
-## 项目概要
-戏曲（京剧/昆曲等）AI 助教 MVP。用户上传演唱视频/音频，系统智能切片并可视化展示。
+This file provides guidance to the AI agent when working with code in this repository.
 
-- **后端**: FastAPI + SQLAlchemy + SQLite (可切 PostgreSQL)
-- **前端**: Vue 3 + TypeScript + Vite + Element Plus
-- **AI**: OpenAI Whisper + Librosa + MoviePy
+## Project Overview
+Opera (Beijing Opera/Kunqu etc.) AI coaching MVP. Users upload singing videos/audio, the system intelligently slices them and visualizes results.
 
-## 关键命令
+- **Backend**: FastAPI + SQLAlchemy + SQLite (PostgreSQL via Docker optional)
+- **Frontend**: Vue 3 + TypeScript + Vite + Element Plus
+- **AI**: DashScope Fun-ASR (lyrics extraction) + Librosa (audio slicing) + MoviePy (audio extraction from video)
+
+## Commands
 
 ```bash
-# 启动 PostgreSQL (可选，默认用 SQLite)
-docker compose up -d
-
-# 后端
+# Backend
 cd backend && source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 
-# 前端
+# Frontend
 cd frontend && npm run dev
+cd frontend && npm run build   # includes vue-tsc type checking
 
-# 构建前端
-cd frontend && npm run build   # 含 vue-tsc 类型检查
+# PostgreSQL (optional, default is SQLite)
+docker compose up -d
 ```
 
-## 架构要点
+## Architecture
 
-**API 路由** (`/api/v1`):
-- `auth` — 注册/登录（JWT，7天过期）
-- `upload` — 视频/音频上传（存 `backend/uploads/`）
-- `segments` — 戏曲作品/唱段管理 + 音频切片
+**Data model**: `OperaWork` → `OperaSegment` → `SegmentSlice`
 
-**数据模型**: `OperaWork`(作品) → `OperaSegment`(唱段) → `SegmentSlice`(切片)
+**API routes** (`/api/v1`):
+- `auth` — register/login (phone + SHA-256 hashed password, JWT 7-day expiry)
+- `upload` — video/audio upload + audio extraction from video (files stored in `backend/uploads/`)
+- `segments` — opera work/segment management + audio slicing + lyrics extraction
 
-**认证**: 手机号+密码，SHA-256 哈希（MVP 级别，`passlib[bcrypt]` 在依赖中但未使用）
+**Lyrics extraction**: Uses DashScope Fun-ASR (not Whisper). Requires `DASHSCOPE_API_KEY` in `backend/.env`.
 
-**配置**: `backend/app/core/config.py`，支持 `.env` 文件覆盖默认值
+## Gotchas
 
-## 重要注意事项
-
-1. **数据库表在启动时自动创建** (`main.py:15`)，无需迁移工具
-2. **音频切片端点是 TODO** — `/segments/{id}/slice` 返回模拟数据，`processors/audio.py` 有基础实现但未接入
-3. **前端几乎为空** — `views/`、`components/`、`api/` 目录均为空，待开发
-4. **无测试框架** — 项目中没有测试配置
-5. **无 lint/format 工具** — 没有 ESLint、Prettier、Ruff 等配置
-6. **uploads/ 在 .gitignore 中** — 上传文件不会提交
-7. **Docker Compose 只定义了 PostgreSQL** — 不包含后端/前端服务
-
-## 文件结构
-
-```
-backend/
-  app/
-    api/v1/   auth.py, upload.py, segments.py
-    core/     config.py, database.py
-    models/   User, OperaWork, OperaSegment, SegmentSlice
-    schemas/  user.py (含所有 Pydantic 模型)
-    processors/ audio.py (AudioProcessor, AudioSlicer)
-    main.py
-  uploads/    运行时生成
-
-frontend/     仅有 package.json，源代码待开发
-```
-
-## CI/CD
-无。无 GitHub Actions 或 pre-commit 配置。
+1. **DB tables auto-create on startup** (`main.py:17`) — no migration tool needed
+2. **Duplicate route definitions** in `segments.py` — `/works/{work_id}` DELETE and `/by-work/{work_id}` GET are defined multiple times (lines 43-101). FastAPI uses the first definition; duplicates are dead code
+3. **No test framework** — no pytest or any test config exists
+4. **No linting/formatting** — no ESLint, Prettier, Ruff, Black configured
+5. **`uploads/` is gitignored** — uploaded files won't be committed
+6. **Python 3.14** venv — use `python3.14` or whatever created the existing venv
+7. **Frontend dev server proxies** `/api` and `/uploads` to backend at `localhost:8000`

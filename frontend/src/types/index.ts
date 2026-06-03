@@ -18,6 +18,9 @@ export interface OperaSegment {
   name: string
   video_url: string | null
   audio_url: string | null
+  vocal_url: string | null
+  accompaniment_url: string | null
+  is_separated: boolean
   lyrics: string | null
   slices: SegmentSlice[]
 }
@@ -28,6 +31,8 @@ export interface SegmentSlice {
   start_time: number
   end_time: number
   lyrics: string | null
+  chenzi_lyrics: string | null
+  numbered_notation: string | null
   commands: string | null
   pitches: any[] | null
   audio_url: string | null

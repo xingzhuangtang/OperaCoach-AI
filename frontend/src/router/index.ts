@@ -30,6 +30,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SegmentView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/works/:workId/segments',
+    name: 'SegmentsByWork',
+    component: () => import('@/views/SegmentsByWorkView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

@@ -62,6 +62,9 @@ class OperaSegmentResponse(BaseModel):
     name: str
     video_url: Optional[str]
     audio_url: Optional[str]
+    vocal_url: Optional[str]
+    accompaniment_url: Optional[str]
+    is_separated: bool
     lyrics: Optional[str]
 
     class Config:
@@ -75,6 +78,8 @@ class SegmentSliceResponse(BaseModel):
     start_time: float
     end_time: float
     lyrics: Optional[str]
+    chenzi_lyrics: Optional[str]
+    numbered_notation: Optional[str]
     commands: Optional[str]
     pitches: Optional[list]
     audio_url: Optional[str]

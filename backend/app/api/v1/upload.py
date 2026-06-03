@@ -100,3 +100,47 @@ async def list_uploads():
                 })
     
     return files
+
+
+@router.post("/notation-file")
+async def upload_notation_file(file: UploadFile = File(...)):
+    """
+    上传数字简谱文本文件
+    文件格式（每行一个简谱序列）：
+    3 5 6 1 2
+    1 2 3 5 6
+    5 3 2 1
+    """
+    if not file.filename.endswith('.txt'):
+        raise HTTPException(status_code=400, detail="仅支持 TXT 格式")
+
+    content = await file.read()
+    text = content.decode('utf-8')
+
+    # 解析简谱（每行一个）
+    notations = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line and not line.startswith('#'):
+            notations.append(line)
+
+    return {
+        "filename": file.filename,
+        "notations": notations,
+        "count": len(notations),
+    }
+
+
+@router.post("/batch-generate-chenzi")
+async def batch_generate_chenzi():
+    """
+    批量生成衬字谱（占位端点，需配合具体作品使用）
+    返回衬字映射表供前端参考
+    """
+    from app.processors.chenzi import ChenziMapper
+
+    mapper = ChenziMapper()
+    return {
+        "message": "请使用 /segments/{id}/generate-chenzi 为具体唱段生成衬字谱",
+        "mapping": mapper.get_mapping_table(),
+    }
