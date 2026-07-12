@@ -292,6 +292,154 @@ async def update_slice_lyrics(
     return {"message": "切片歌词保存成功", "lyrics": segment_slice.lyrics}
 
 
+@router.get("/{segment_id}/pitches")
+async def get_pitches(
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    提取所有切片的音高数据（逐片提取，速度快）
+    结果缓存到数据库，下次直接返回
+    """
+    from app.processors.audio import AudioProcessor
+    from app.core.config import settings
+    from pathlib import Path
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    slices = db.query(SegmentSlice).filter(
+        SegmentSlice.segment_id == segment_id
+    ).order_by(SegmentSlice.slice_index).all()
+
+    if not slices:
+        raise HTTPException(status_code=400, detail="没有切片")
+
+    processor = AudioProcessor()
+    results = []
+    
+    for slice in slices:
+        # 如果已缓存，直接返回
+        if slice.pitches:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "pitches": slice.pitches
+            })
+            continue
+        
+        # 提取切片音高
+        if not slice.audio_url:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "pitches": None
+            })
+            continue
+        
+        audio_path = Path(settings.UPLOAD_DIR) / slice.audio_url.removeprefix("/uploads/")
+        if not audio_path.exists():
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "pitches": None
+            })
+            continue
+        
+        try:
+            pitches = processor.extract_pitch(str(audio_path))
+            slice.pitches = pitches
+            db.commit()
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "pitches": pitches
+            })
+        except Exception as e:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "pitches": None,
+                "error": str(e)
+            })
+    
+    return {"slices": results}
+
+
+@router.post("/{segment_id}/regenerate-chenzi")
+async def regenerate_chenzi(
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    根据已缓存的音高数据重新生成衬字谱
+    """
+    from app.processors.chenzi import ChenziMapper, freq_to_solfege
+    import numpy as np
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    slices = db.query(SegmentSlice).filter(
+        SegmentSlice.segment_id == segment_id
+    ).order_by(SegmentSlice.slice_index).all()
+
+    if not slices:
+        raise HTTPException(status_code=400, detail="没有切片")
+
+    mapper = ChenziMapper()
+    updated_count = 0
+
+    for slice in slices:
+        if not slice.pitches or not slice.lyrics:
+            continue
+
+        char_count = len(slice.lyrics.replace(" ", "").replace("\n", "").strip())
+        if char_count == 0:
+            continue
+
+        valid_pitches = [p for p in slice.pitches if p is not None and p > 0]
+        if not valid_pitches:
+            continue
+
+        total_frames = len(slice.pitches)
+        segment_len = total_frames // char_count
+        if segment_len < 1:
+            segment_len = 1
+
+        digits = []
+        for i in range(char_count):
+            start = i * segment_len
+            end = start + segment_len if i < char_count - 1 else total_frames
+            segment_pitches = slice.pitches[start:end]
+            valid_segment = [p for p in segment_pitches if p is not None and p > 0]
+
+            if not valid_segment:
+                digits.append("5")
+                continue
+
+            median_freq = float(np.median(valid_segment))
+            solfege = freq_to_solfege(median_freq)
+            digit = str(solfege) if 1 <= solfege <= 7 else "5"
+            digits.append(digit)
+
+        notation = " ".join(digits)
+        chenzi = mapper.to_chenzi_string(notation)
+
+        slice.numbered_notation = notation
+        slice.chenzi_lyrics = chenzi
+        updated_count += 1
+
+    db.commit()
+
+    return {
+        "message": f"已更新 {updated_count} 个切片的衬字谱",
+        "updated_count": updated_count
+    }
+
+
 @router.post("/{segment_id}/separate")
 async def separate_audio(
     segment_id: int,
@@ -400,7 +548,7 @@ async def smart_slice(
         slices_dir = UPLOAD_DIR / "funasr_slices"
         slices_dir.mkdir(parents=True, exist_ok=True)
 
-        slices = processor.slice_by_fun_asr_sentences(str(vocal_path), output_dir=str(slices_dir))
+        slices = processor.slice_by_fun_asr_sentences(str(vocal_path), output_dir=str(slices_dir), segment_id=segment_id)
 
         if not slices:
             raise HTTPException(status_code=500, detail="Fun-ASR 识别失败，未能提取句子")
@@ -412,8 +560,21 @@ async def smart_slice(
 
         for i, slice_data in enumerate(slices):
             lyrics = slice_data.get("lyrics", "")
-            # 自动生成衬字谱（按字数循环 1-5）
-            chenzi_result = mapper.auto_generate_chenzi(lyrics)
+
+            # 先提取该切片的音高数据
+            slice_audio_path = Path(settings.UPLOAD_DIR) / slice_data.get("audio_url", "").removeprefix("/uploads/")
+            pitches = []
+            if slice_audio_path.exists():
+                try:
+                    pitches = processor.extract_pitch(str(slice_audio_path))
+                except Exception:
+                    pass
+
+            # 用真实音高生成精确衬字谱
+            if pitches:
+                chenzi_result = mapper.generate_chenzi_from_pitch(lyrics, pitches)
+            else:
+                chenzi_result = mapper.auto_generate_chenzi(lyrics)
 
             segment_slice = SegmentSlice(
                 segment_id=segment_id,
@@ -424,6 +585,7 @@ async def smart_slice(
                 chenzi_lyrics=chenzi_result["chenzi"],
                 numbered_notation=chenzi_result["notation"],
                 audio_url=slice_data.get("audio_url"),
+                pitches=pitches,
             )
             db.add(segment_slice)
 
@@ -486,3 +648,45 @@ async def generate_chenzi(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{segment_id}/generate-music")
+async def generate_music(
+    segment_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+):
+    """
+    AI 生成音乐
+    输入: {"lyrics": "...", "style": "流行", "duration": 30}
+    返回: {"audio_url": "..."}
+    """
+    from app.processors.audio import AudioProcessor
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    lyrics = data.get("lyrics", "")
+    if not lyrics:
+        raise HTTPException(status_code=400, detail="歌词不能为空")
+
+    style = data.get("style", "流行")
+    duration = data.get("duration", 30)
+
+    print(f"[generate-music] 收到请求: lyrics={lyrics[:50]}..., style={style}, duration={duration}")
+
+    try:
+        processor = AudioProcessor()
+        result = processor.generate_music(lyrics=lyrics, style=style, duration=duration)
+
+        if result["status"] == "success":
+            return {"audio_url": result["audio_url"]}
+        else:
+            print(f"[generate-music] API 返回失败: {result['error']}")
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        print(f"[generate-music] 异常: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")

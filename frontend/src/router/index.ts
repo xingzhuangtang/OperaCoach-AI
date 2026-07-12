@@ -10,7 +10,15 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: '/works',
+    name: 'Home',
+    component: () => import('@/views/HomeView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/hub',
+    name: 'Hub',
+    component: () => import('@/views/HubView.vue'),
+    meta: { requiresAuth: true },
   },
   {
     path: '/works',
@@ -28,6 +36,12 @@ const routes: RouteRecordRaw[] = [
     path: '/segment/:id',
     name: 'Segment',
     component: () => import('@/views/SegmentView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/music',
+    name: 'Music',
+    component: () => import('@/views/MusicView.vue'),
     meta: { requiresAuth: true },
   },
   {
@@ -49,7 +63,7 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth !== false && !token) {
     next('/login')
   } else if (to.path === '/login' && token) {
-    next('/works')
+    next('/')
   } else {
     next()
   }

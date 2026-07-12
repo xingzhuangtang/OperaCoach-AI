@@ -3,6 +3,7 @@
 """
 import numpy as np
 import librosa
+import torch
 from typing import List, Dict, Any
 
 
@@ -226,7 +227,132 @@ class AudioProcessor:
         except FileNotFoundError:
             raise RuntimeError("未找到 demucs 命令，请安装: pip install demucs")
 
-    def slice_by_fun_asr_sentences(self, audio_path: str, output_dir: str = None) -> List[Dict[str, Any]]:
+    def extract_pitch(self, audio_path: str) -> List[float]:
+        """
+        从音频中提取音高序列（Hz）
+        使用 librosa.pyin（速度快，适合实时场景）
+        返回: [f0_1, f0_2, ...] 浮点数组，无音高帧为 null
+        """
+        y, sr = self.load_audio(audio_path)
+        # 确保单声道
+        if y.ndim > 1:
+            y = y.mean(axis=1)
+
+        # 使用 pyin 提取音高
+        f0, voiced_flag, voiced_probs = librosa.pyin(
+            y,
+            sr=sr,
+            fmin=librosa.note_to_hz('C2'),
+            fmax=librosa.note_to_hz('C7'),
+            frame_length=2048,
+        )
+        return [float(f) if not np.isnan(f) else None for f in f0]
+
+    def generate_music(self, lyrics: str, style: str = "流行", duration: int = 30, reference_audio_url: str = "") -> Dict[str, Any]:
+        """
+        调用阿里 Fun-Music API 生成音乐（同步模式）
+        参数:
+            lyrics: 歌词文本
+            style: 风格描述（如"流行"、"古风"、"戏曲"）
+            duration: 生成时长（秒）
+            reference_audio_url: 参考音频URL（可选，用于参考旋律）
+        返回:
+            {"status": "success", "audio_url": "..."} 或 {"status": "failed", "error": "..."}
+        """
+        import requests
+        import time
+        from pathlib import Path
+        from app.core.config import settings
+
+        api_key = settings.DASHSCOPE_API_KEY
+        if not api_key:
+            return {"status": "failed", "error": "DASHSCOPE_API_KEY 未配置"}
+
+        # 创建输出目录
+        output_dir = Path(settings.UPLOAD_DIR) / "audios" / "fun_music"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 调用 Fun-Music API（同步模式）
+        url = "https://dashscope.aliyuncs.com/api/v1/services/audio/music/generation"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "fun-music-v1",
+            "input": {
+                "lyrics": lyrics,
+                "style": style
+            },
+            "parameters": {
+                "duration": duration
+            }
+        }
+
+        # 如果有参考音频，添加到 payload
+        if reference_audio_url:
+            # 将相对路径转换为完整的 URL
+            if reference_audio_url.startswith("/uploads/"):
+                from app.core.config import settings
+                ref_audio_full_url = f"http://localhost:8000{reference_audio_url}"
+            else:
+                ref_audio_full_url = reference_audio_url
+            payload["input"]["ref_audio"] = ref_audio_full_url
+            print(f"[Fun-Music] 使用参考音频: {ref_audio_full_url}")
+
+        try:
+            print(f"[Fun-Music] 开始生成音乐，时长: {duration}秒...")
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            
+            if response.status_code != 200:
+                return {"status": "failed", "error": f"API 调用失败: {response.text}"}
+
+            result = response.json()
+            
+            # 解析返回的音频 URL
+            audio_url = result.get("output", {}).get("audio", {}).get("url")
+            if not audio_url:
+                return {"status": "failed", "error": f"未获取到音频 URL: {result}"}
+
+            print(f"[Fun-Music] 获取到音频 URL，开始下载...")
+
+            # 下载音频文件
+            audio_response = requests.get(audio_url, timeout=60)
+            if audio_response.status_code != 200:
+                return {"status": "failed", "error": "下载音频失败"}
+
+            # 保存文件（MP3 格式）
+            import random
+            filename = f"fun_music_{int(time.time())}_{random.randint(1000, 9999)}.mp3"
+            file_path = output_dir / filename
+            with open(file_path, "wb") as f:
+                f.write(audio_response.content)
+
+            # 裁剪音频到指定时长
+            try:
+                import librosa
+                import soundfile as sf
+                import numpy as np
+                y, sr = librosa.load(file_path, sr=None)
+                target_samples = int(duration * sr)
+                if len(y) > target_samples:
+                    y = y[:target_samples]
+                    sf.write(file_path, y, sr, format='mp3')
+                    print(f"[Fun-Music] 音频已裁剪到 {duration} 秒")
+            except Exception as e:
+                print(f"[Fun-Music] 音频裁剪失败: {e}")
+
+            # 返回相对 URL
+            relative_url = f"/uploads/audios/fun_music/{filename}"
+            print(f"[Fun-Music] 音乐生成成功: {relative_url}")
+            return {"status": "success", "audio_url": relative_url}
+
+        except requests.exceptions.RequestException as e:
+            return {"status": "failed", "error": f"网络请求失败: {str(e)}"}
+        except Exception as e:
+            return {"status": "failed", "error": f"生成失败: {str(e)}"}
+
+    def slice_by_fun_asr_sentences(self, audio_path: str, output_dir: str = None, segment_id: int = None) -> List[Dict[str, Any]]:
         """
         基于 Fun-ASR 识别结果的句子级切片
         1. 调用 _call_fun_asr_v2() 获取带时间戳的句子
@@ -236,9 +362,14 @@ class AudioProcessor:
         """
         import soundfile as sf
         from pathlib import Path
+        from app.core.config import settings
 
         if output_dir is None:
             output_dir = str(Path(audio_path).parent / "funasr_slices")
+
+        # 使用 segment_id 隔离子目录，避免不同唱段切片互相覆盖
+        if segment_id is not None:
+            output_dir = str(Path(output_dir) / str(segment_id))
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -248,8 +379,21 @@ class AudioProcessor:
         if not sentences:
             return []
 
+        # 打印识别结果用于调试
+        print(f"[FunASR] 识别到 {len(sentences)} 个句子:")
+        for idx, s in enumerate(sentences):
+            print(f"  [{idx+1}] {s['start']:.1f}s-{s['end']:.1f}s: {s['text']}")
+
         # 2. 加载完整音频
         y, sr = self.load_audio(audio_path)
+
+        # 计算 output_dir 相对于 UPLOAD_DIR 的路径，用于生成正确的 URL
+        upload_root = Path(settings.UPLOAD_DIR).resolve()
+        output_path_resolved = Path(output_dir).resolve()
+        try:
+            rel_dir = output_path_resolved.relative_to(upload_root)
+        except ValueError:
+            rel_dir = Path("funasr_slices") / (str(segment_id) if segment_id else "")
 
         # 3. 按句子时间戳切片
         slices = []
@@ -272,14 +416,15 @@ class AudioProcessor:
             slice_audio = y[start_sample:end_sample]
 
             # 保存切片音频
-            output_path = Path(output_dir) / f"sentence_{i+1}.wav"
-            sf.write(str(output_path), slice_audio, sr)
+            filename = f"sentence_{i+1}.wav"
+            output_file = Path(output_dir) / filename
+            sf.write(str(output_file), slice_audio, sr)
 
             slices.append({
                 "start_time": start_time,
                 "end_time": end_time,
                 "lyrics": lyrics,
-                "audio_url": f"/uploads/funasr_slices/sentence_{i+1}.wav",
+                "audio_url": f"/uploads/{rel_dir}/{filename}",
             })
 
         return slices

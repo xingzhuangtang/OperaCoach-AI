@@ -23,3 +23,9 @@ export const updateLyrics = (id: number, lyrics: string) =>
   api.put<{ message: string; lyrics: string }>(`/segments/${id}/lyrics`, { lyrics })
 export const updateSliceLyrics = (segmentId: number, sliceId: number, lyrics: string) =>
   api.put<{ message: string; lyrics: string }>(`/segments/${segmentId}/slices/${sliceId}`, { lyrics })
+export const getSegmentPitches = (id: number) =>
+  api.get<{ slices: Array<{ slice_id: number; slice_index: number; pitches: (number | null)[] }> }>(`/segments/${id}/pitches`)
+export const regenerateChenzi = (id: number) =>
+  api.post<{ message: string; updated_count: number }>(`/segments/${id}/regenerate-chenzi`)
+export const generateMusic = (id: number, data: { lyrics: string; style?: string; duration?: number }) =>
+  api.post<{ audio_url: string }>(`/segments/${id}/generate-music`, data, { timeout: 120000 })

@@ -11,7 +11,7 @@ from app.core.database import engine, Base
 from app.api.router import router as api_router
 
 # 导入所有模型（确保 SQLAlchemy 关系正确配置）
-from app.models import User, OperaWork, OperaSegment, SegmentSlice
+from app.models import User, OperaWork, OperaSegment, SegmentSlice, MusicGeneration, MusicAlbum
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)

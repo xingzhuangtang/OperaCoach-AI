@@ -7,16 +7,17 @@
 
 html, body {
   height: 100%;
-  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  color: #1a202c;
+  font-family: 'Noto Serif SC', 'STSong', 'SimSun', 'PingFang SC', serif;
+  background: transparent;
+  color: #e0e0e0;
+  overflow-x: hidden;
 }
 
 #app {
   height: 100%;
 }
 
-/* 水墨背景装饰 */
+/* 水墨江湖背景 */
 .ink-bg {
   position: fixed;
   top: 0;
@@ -25,60 +26,223 @@ html, body {
   height: 100%;
   pointer-events: none;
   z-index: -1;
-  background: 
-    radial-gradient(ellipse at 20% 20%, rgba(43, 108, 176, 0.1) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(214, 158, 46, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 50%, rgba(150, 150, 150, 0.05) 0%, transparent 70%);
+  background:
+    radial-gradient(ellipse at 15% 15%, rgba(58, 90, 120, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 85%, rgba(184, 134, 11, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(30, 30, 50, 0.5) 0%, transparent 70%);
 }
 
-/* 通用卡片样式 */
+.ink-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity: 0.5;
+}
+
+.ink-bg::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 40%;
+  background: linear-gradient(to top, rgba(26, 26, 46, 0.8), transparent);
+}
+
+/* 通用卡片 - 宣纸质感 */
 .dreamy-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(43, 108, 176, 0.12);
-  border: 1px solid rgba(214, 158, 46, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border-radius: 8px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(184, 134, 11, 0.15);
+  position: relative;
+  overflow: hidden;
 }
 
-/* 按钮通用样式 */
+.dreamy-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #b8860b 50%, transparent 100%);
+  opacity: 0.6;
+}
+
+/* 按钮 - 剑锋 */
 .dreamy-btn {
-  border-radius: 8px;
-  transition: all 0.3s ease;
+  border-radius: 6px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  letter-spacing: 1px;
 }
 
 .dreamy-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(43, 108, 176, 0.25);
+  box-shadow: 0 6px 20px rgba(58, 90, 120, 0.4);
 }
 
-/* 标题样式 */
+.dreamy-btn:active {
+  transform: translateY(0);
+}
+
+/* 标题 - 碑刻 */
 .dreamy-title {
-  font-size: 24px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #2b6cb0 0%, #d69e2e 100%);
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 50%, #b8860b 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: 4px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* 输入框样式 */
+/* 输入框 */
 .dreamy-input .el-input__wrapper {
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(184, 134, 11, 0.2);
 }
 
-/* 表格样式 */
+/* 表格 - 古籍 */
 .dreamy-table .el-table {
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
 }
 
-/* 动画 */
+/* 剑气动画 */
+@keyframes swordSlash {
+  0% {
+    opacity: 0;
+    transform: translateX(-100%) rotate(-5deg);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%) rotate(5deg);
+  }
+}
+
+@keyframes inkDrop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) translateY(-20px);
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2) translateY(20px);
+  }
+}
+
+@keyframes mist {
+  0%, 100% {
+    opacity: 0.3;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateX(30px);
+  }
+}
+
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes brushStroke {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
 }
 
 .fade-in {
-  animation: fadeIn 0.5s ease-out;
+  animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-in-right {
+  animation: slideInRight 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 滚动条 - 竹节 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(26, 26, 46, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3a5a78 0%, #5a7a98 100%);
+  border-radius: 4px;
+  border: 1px solid rgba(184, 134, 11, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #2a4a68 0%, #3a5a78 100%);
+}
+
+/* 选中文字 */
+::selection {
+  background: rgba(184, 134, 11, 0.3);
+  color: #fff;
+}
+
+/* 链接 */
+a {
+  color: #b8860b;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+a:hover {
+  color: #daa520;
+  text-shadow: 0 0 8px rgba(184, 134, 11, 0.5);
+}
+
+/* 分隔线 - 墨痕 */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(184, 134, 11, 0.3) 50%, transparent 100%);
+  margin: 20px 0;
 }

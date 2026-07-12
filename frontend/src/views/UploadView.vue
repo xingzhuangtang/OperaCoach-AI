@@ -1,43 +1,21 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { uploadVideo, uploadAudio, extractAudio } from '@/api/upload'
-import { listWorks, createSegment } from '@/api/segments'
+import { listWorks, createWork, createSegment } from '@/api/segments'
 import type { OperaWork } from '@/types'
 
 const router = useRouter()
 const works = ref<OperaWork[]>([])
-const uploadedFiles = ref<{ name: string; url: string; type: 'video' | 'audio'; extracting?: boolean }[]>([])
-const uploading = ref(false)
-const segmentFormRef = ref()
 
-// 加载已上传文件列表
-const loadUploadedFiles = async () => {
-  try {
-    const response = await fetch('/api/v1/upload/list')
-    if (response.ok) {
-      const data = await response.json()
-      uploadedFiles.value = data
-    }
-  } catch (e) {
-    // 忽略错误
-  }
-}
+const videoFile = ref<{ name: string; url: string; extracting?: boolean } | null>(null)
+const audioFile = ref<{ name: string; url: string } | null>(null)
 
-const segmentForm = reactive({
-  work_id: null as number | null,
-  name: '',
-  video_url: '',
-  audio_url: '',
-})
-const dialogVisible = ref(false)
-
-const segmentRules = {
-  work_id: [{ required: true, message: '请选择作品', trigger: 'change' }],
-  name: [{ required: true, message: '请输入唱段名称', trigger: 'blur' }],
-}
+const workName = ref('')
+const segmentName = ref('')
+const selectedWorkId = ref<number | null>(null)
+const creating = ref(false)
 
 const fetchWorks = async () => {
   const { data } = await listWorks()
@@ -45,245 +23,251 @@ const fetchWorks = async () => {
 }
 
 const handleVideoUpload = async (file: File) => {
-  uploading.value = true
   try {
     const { data } = await uploadVideo(file)
-    uploadedFiles.value.push({ name: file.name, url: data.video_url, type: 'video' })
+    videoFile.value = { name: file.name, url: data.video_url }
+    if (!segmentName.value) {
+      segmentName.value = file.name.replace(/\.[^.]+$/, '')
+    }
     ElMessage.success('视频上传成功')
   } catch (e) {
-    // 已处理
-  } finally {
-    uploading.value = false
+    // handled
   }
   return false
 }
 
 const handleAudioUpload = async (file: File) => {
-  uploading.value = true
   try {
     const { data } = await uploadAudio(file)
-    uploadedFiles.value.push({ name: file.name, url: data.audio_url, type: 'audio' })
+    audioFile.value = { name: file.name, url: data.audio_url }
+    if (!segmentName.value) {
+      segmentName.value = file.name.replace(/\.[^.]+$/, '')
+    }
     ElMessage.success('音频上传成功')
   } catch (e) {
-    // 已处理
-  } finally {
-    uploading.value = false
+    // handled
   }
   return false
 }
 
-const handleExtractAudio = async (videoUrl: string, index: number) => {
-  const file = uploadedFiles.value[index]
-  file.extracting = true
+const handleExtractAudio = async () => {
+  if (!videoFile.value) return
+  videoFile.value.extracting = true
   try {
-    const { data } = await extractAudio(videoUrl)
-    uploadedFiles.value.push({ name: file.name.replace(/\.[^.]+$/, '.wav'), url: data.audio_url, type: 'audio' })
-    ElMessage.success('音频提取成功')
+    const { data } = await extractAudio(videoFile.value.url)
+    audioFile.value = {
+      name: videoFile.value.name.replace(/\.[^.]+$/, '.wav'),
+      url: data.audio_url,
+    }
+    ElMessage.success('音频提取成功，已自动填充到音频栏')
   } catch (e) {
-    // 已处理
+    // handled
   } finally {
-    file.extracting = false
+    videoFile.value.extracting = false
   }
-  // 刷新文件列表
-  await loadUploadedFiles()
 }
 
-const openCreateDialog = () => {
-  if (uploadedFiles.value.length === 0) {
-    ElMessage.warning('请先上传文件')
-    return
-  }
-  segmentForm.work_id = null
-  segmentForm.name = ''
-  segmentForm.video_url = ''
-  segmentForm.audio_url = ''
-  dialogVisible.value = true
+const removeVideo = () => {
+  videoFile.value = null
+}
+
+const removeAudio = () => {
+  audioFile.value = null
 }
 
 const handleCreateSegment = async () => {
-  if (!segmentFormRef.value) return
-  await segmentFormRef.value.validate(async (valid: boolean) => {
-    if (!valid) return
-    if (!segmentForm.video_url && !segmentForm.audio_url) {
-      ElMessage.warning('请至少选择一个文件')
-      return
-    }
-    try {
-      await createSegment(segmentForm)
-      ElMessage.success('唱段创建成功')
-      dialogVisible.value = false
-      router.push('/works')
-    } catch (e) {
-      // 已处理
-    }
-  })
-}
+  if (!videoFile.value && !audioFile.value) {
+    ElMessage.warning('请先上传视频或音频')
+    return
+  }
 
-const handleLogout = () => {
-  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(() => {
-    localStorage.removeItem('token')
-    router.push('/login')
-  }).catch(() => {})
+  if (!workName.value.trim() && !selectedWorkId.value) {
+    ElMessage.warning('请输入作品名称或选择已有作品')
+    return
+  }
+
+  if (!segmentName.value.trim()) {
+    ElMessage.warning('请输入唱段名称')
+    return
+  }
+
+  creating.value = true
+  try {
+    let workId = selectedWorkId.value
+
+    if (!workId && workName.value.trim()) {
+      const { data: newWork } = await createWork({ name: workName.value.trim() })
+      workId = newWork.id
+      ElMessage.success('作品创建成功')
+    }
+
+    await createSegment({
+      work_id: workId!,
+      name: segmentName.value.trim(),
+      video_url: videoFile.value?.url || '',
+      audio_url: audioFile.value?.url || '',
+    })
+    ElMessage.success('唱段创建成功')
+    router.push('/works')
+  } catch (e) {
+    // handled
+  } finally {
+    creating.value = false
+  }
 }
 
 onMounted(() => {
   fetchWorks()
-  loadUploadedFiles()
 })
 </script>
 
 <template>
   <div class="upload-container">
-    <div class="ink-bg"></div>
-    
-    <!-- 顶部导航 -->
-    <header class="header dreamy-card">
+    <header class="header">
       <div class="header-left">
-        <span class="logo">🎭 戏曲 AI 助教</span>
-      </div>
-      <div class="header-right">
-        <el-button class="dreamy-btn" @click="router.push('/works')">作品列表</el-button>
-        <el-button class="dreamy-btn" @click="handleLogout">退出</el-button>
+        <button class="back-nav" @click="router.push('/hub')">← 返回</button>
+        <span class="logo">影子戏</span>
+        <span class="logo-sub">上传管理</span>
       </div>
     </header>
 
-    <!-- 主内容 -->
     <main class="main-content fade-in">
-      <h2 class="dreamy-title">上传管理</h2>
-      
-      <!-- 流程提示 -->
-      <el-alert
-        title="操作流程：①上传视频/音频 → ②点击'创建唱段' → ③选择作品并填写名称"
-        type="info"
-        :closable="false"
-        style="margin-bottom: 24px"
-      />
-
-      <!-- 上传区 -->
-      <div class="upload-section">
-        <el-upload
-          drag
-          action=""
-          :auto-upload="false"
-          :on-change="(file: any) => handleVideoUpload(file.raw)"
-          accept=".mp4,.mov,.avi"
-          :show-file-list="false"
-        >
-          <div class="upload-content">
-            <el-icon size="48"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖拽视频到此处 或 <em>点击上传</em></div>
-            <div class="el-upload__tip">支持 MP4/MOV/AVI</div>
-          </div>
-        </el-upload>
-
-        <el-upload
-          drag
-          action=""
-          :auto-upload="false"
-          :on-change="(file: any) => handleAudioUpload(file.raw)"
-          accept=".mp3,.wav,.flac"
-          :show-file-list="false"
-        >
-          <div class="upload-content">
-            <el-icon size="48"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖拽音频到此处 或 <em>点击上传</em></div>
-            <div class="el-upload__tip">支持 MP3/WAV/FLAC</div>
-          </div>
-        </el-upload>
+      <div class="page-header">
+        <h2 class="dreamy-title">上传管理</h2>
+        <div class="title-underline"></div>
       </div>
 
-      <!-- 已上传文件列表 -->
-      <div v-if="uploadedFiles.length > 0" class="file-list">
-        <h3>已上传文件</h3>
-        <el-table :data="uploadedFiles" style="width: 100%">
-          <el-table-column prop="name" label="文件名" />
-          <el-table-column prop="type" label="类型" width="100">
-            <template #default="{ row }">
-              <el-tag :type="row.type === 'video' ? 'success' : 'warning'">
-                {{ row.type === 'video' ? '视频' : '音频' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="url" label="路径" />
-          <el-table-column label="操作" width="120">
-            <template #default="{ row, $index }">
-              <el-button
-                v-if="row.type === 'video'"
-                type="primary"
-                size="small"
-                :loading="row.extracting"
-                @click="handleExtractAudio(row.url, $index)"
+      <!-- 作品和唱段信息 -->
+      <div class="info-section">
+        <div class="info-row">
+          <div class="info-item">
+            <label class="info-label">作品名称</label>
+            <div class="info-input-group">
+              <el-input
+                v-model="workName"
+                placeholder="输入新作品名称（或选择已有作品）"
+                clearable
+                @input="selectedWorkId = null"
+              />
+              <span class="or-text">或</span>
+              <el-select
+                v-model="selectedWorkId"
+                placeholder="选择已有作品"
+                clearable
+                @change="workName = ''"
               >
-                提取音频
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+                <el-option v-for="work in works" :key="work.id" :label="work.name" :value="work.id" />
+              </el-select>
+            </div>
+          </div>
+          <div class="info-item">
+            <label class="info-label">唱段名称</label>
+            <el-input v-model="segmentName" placeholder="输入唱段名称" clearable />
+          </div>
+        </div>
       </div>
 
-      <!-- 创建唱段按钮 -->
-      <el-button
-        type="primary"
-        class="dreamy-btn"
-        style="margin-top: 24px"
-        @click="openCreateDialog"
-      >
-        创建唱段
-      </el-button>
-    </main>
+      <!-- 左右分栏上传区 -->
+      <div class="upload-columns">
+        <!-- 视频栏 -->
+        <div class="upload-column">
+          <div class="column-label">
+            <span class="label-char">影</span>
+            <span class="label-text">视频</span>
+          </div>
 
-    <!-- 创建唱段弹窗 -->
-    <el-dialog v-model="dialogVisible" title="创建唱段" width="500px">
-      <el-form ref="segmentFormRef" :model="segmentForm" :rules="segmentRules" label-width="80px">
-        <el-form-item label="作品" prop="work_id" required>
-          <el-select
-            v-model="segmentForm.work_id"
-            placeholder="请选择作品"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="work in works"
-              :key="work.id"
-              :label="work.name"
-              :value="work.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="唱段名" prop="name" required>
-          <el-input v-model="segmentForm.name" placeholder="请输入唱段名称" />
-        </el-form-item>
-        <el-form-item label="视频">
-          <el-select v-model="segmentForm.video_url" placeholder="选择视频（可选）" style="width: 100%" clearable>
-            <el-option
-              v-for="file in uploadedFiles.filter(f => f.type === 'video')"
-              :key="file.url"
-              :label="file.name"
-              :value="file.url"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="音频">
-          <el-select v-model="segmentForm.audio_url" placeholder="选择音频（可选）" style="width: 100%" clearable>
-            <el-option
-              v-for="file in uploadedFiles.filter(f => f.type === 'audio')"
-              :key="file.url"
-              :label="file.name"
-              :value="file.url"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" class="dreamy-btn" @click="handleCreateSegment">
-          创建
+          <div v-if="!videoFile" class="upload-slot">
+            <el-upload
+              drag
+              action=""
+              :auto-upload="false"
+              :on-change="(file: any) => handleVideoUpload(file.raw)"
+              accept=".mp4,.mov,.avi"
+              :show-file-list="false"
+              class="upload-box"
+            >
+              <div class="upload-content">
+                <div class="upload-icon">+</div>
+                <div class="upload-desc">拖拽视频到此处 或 点击上传</div>
+                <div class="upload-formats">MP4 / MOV / AVI</div>
+              </div>
+            </el-upload>
+          </div>
+
+          <div v-else class="file-preview">
+            <div class="preview-info">
+              <div class="file-name">{{ videoFile.name }}</div>
+              <video :src="videoFile.url" class="preview-video" preload="metadata" />
+            </div>
+            <div class="preview-actions">
+              <el-button
+                type="warning"
+                size="small"
+                class="dreamy-btn extract-btn"
+                :loading="videoFile.extracting"
+                @click="handleExtractAudio"
+              >
+                提取音频 →
+              </el-button>
+              <el-button size="small" text class="remove-btn" @click="removeVideo">移除</el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 中间箭头 -->
+        <div class="column-arrow">
+          <div class="arrow-line"></div>
+        </div>
+
+        <!-- 音频栏 -->
+        <div class="upload-column">
+          <div class="column-label">
+            <span class="label-char">音</span>
+            <span class="label-text">音频</span>
+          </div>
+
+          <div v-if="!audioFile" class="upload-slot">
+            <el-upload
+              drag
+              action=""
+              :auto-upload="false"
+              :on-change="(file: any) => handleAudioUpload(file.raw)"
+              accept=".mp3,.wav,.flac"
+              :show-file-list="false"
+              class="upload-box"
+            >
+              <div class="upload-content">
+                <div class="upload-icon">+</div>
+                <div class="upload-desc">拖拽音频到此处 或 点击上传</div>
+                <div class="upload-formats">MP3 / WAV / FLAC</div>
+              </div>
+            </el-upload>
+          </div>
+
+          <div v-else class="file-preview">
+            <div class="preview-info">
+              <div class="file-name">{{ audioFile.name }}</div>
+              <audio :src="audioFile.url" controls class="preview-audio" />
+            </div>
+            <div class="preview-actions">
+              <el-button size="small" text class="remove-btn" @click="removeAudio">移除</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 创建按钮 -->
+      <div class="create-section">
+        <el-button
+          type="primary"
+          class="dreamy-btn create-btn"
+          :loading="creating"
+          @click="handleCreateSegment"
+        >
+          创建唱段
         </el-button>
-      </template>
-    </el-dialog>
+      </div>
+    </main>
   </div>
 </template>
 
@@ -291,6 +275,7 @@ onMounted(() => {
 .upload-container {
   min-height: 100vh;
   position: relative;
+  z-index: 1;
 }
 
 .header {
@@ -301,40 +286,331 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 100;
+  background: rgba(26, 26, 46, 0.9);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(184, 134, 11, 0.15);
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.back-nav {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.back-nav:hover {
+  color: #b8860b;
+  background: rgba(184, 134, 11, 0.08);
 }
 
 .logo {
-  font-size: 20px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #2b6cb0 0%, #d69e2e 100%);
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: 3px;
+}
+
+.logo-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 2px;
 }
 
 .main-content {
-  max-width: 1200px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 32px;
 }
 
-.upload-section {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 24px;
+.page-header {
   margin-bottom: 24px;
 }
 
+.dreamy-title {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 50%, #b8860b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 4px;
+  margin-bottom: 8px;
+}
+
+.title-underline {
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, #b8860b, transparent);
+}
+
+/* 作品信息区 */
+.info-section {
+  margin-bottom: 28px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(184, 134, 11, 0.1);
+  border-radius: 8px;
+}
+
+.info-row {
+  display: flex;
+  gap: 24px;
+}
+
+.info-item {
+  flex: 1;
+}
+
+.info-label {
+  display: block;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+.info-input-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.info-input-group .el-input {
+  flex: 1;
+}
+
+.info-input-group .el-select {
+  flex: 1;
+}
+
+.or-text {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+}
+
+.info-section :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(184, 134, 11, 0.2);
+}
+
+.info-section :deep(.el-input__inner) {
+  color: #e0e0e0;
+}
+
+.info-section :deep(.el-input__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.info-section :deep(.el-select .el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* 左右分栏 */
+.upload-columns {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+.upload-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.column-arrow {
+  width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.arrow-line {
+  width: 2px;
+  height: 60%;
+  min-height: 80px;
+  background: linear-gradient(180deg, transparent 0%, rgba(184, 134, 11, 0.3) 50%, transparent 100%);
+  position: relative;
+}
+
+.arrow-line::after {
+  content: '→';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(184, 134, 11, 0.4);
+  font-size: 16px;
+  background: rgba(26, 26, 46, 1);
+  padding: 4px;
+}
+
+.column-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.label-char {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(58, 90, 120, 0.2) 0%, rgba(184, 134, 11, 0.1) 100%);
+  border: 1px solid rgba(184, 134, 11, 0.3);
+  border-radius: 50%;
+  font-size: 18px;
+  color: #b8860b;
+  font-weight: 700;
+}
+
+.label-text {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 2px;
+}
+
+/* 上传区域 */
+.upload-slot {
+  flex: 1;
+}
+
+.upload-box {
+  width: 100%;
+}
+
+.upload-box :deep(.el-upload) {
+  width: 100%;
+}
+
+.upload-box :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 2px dashed rgba(184, 134, 11, 0.2);
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+}
+
+.upload-box :deep(.el-upload-dragger:hover) {
+  border-color: rgba(184, 134, 11, 0.5);
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .upload-content {
-  padding: 40px;
+  padding: 40px 24px;
+  text-align: center;
+  width: 100%;
+}
+
+.upload-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(184, 134, 11, 0.3);
+  border-radius: 50%;
+  font-size: 24px;
+  color: rgba(184, 134, 11, 0.6);
+  font-weight: 300;
+}
+
+.upload-desc {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+}
+
+.upload-formats {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.2);
+  letter-spacing: 1px;
+}
+
+/* 文件预览 */
+.file-preview {
+  flex: 1;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(184, 134, 11, 0.15);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.file-name {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  word-break: break-all;
+}
+
+.preview-video {
+  width: 100%;
+  max-height: 240px;
+  border-radius: 6px;
+  background: #000;
+}
+
+.preview-audio {
+  width: 100%;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.extract-btn {
+  letter-spacing: 1px;
+}
+
+.remove-btn {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.remove-btn:hover {
+  color: #8b0000;
+}
+
+/* 创建按钮 */
+.create-section {
+  margin-top: 32px;
   text-align: center;
 }
 
-.file-list {
-  margin-top: 24px;
-}
-
-.file-list h3 {
-  margin-bottom: 12px;
+.create-btn {
+  padding: 14px 48px;
+  font-size: 16px;
+  letter-spacing: 4px;
 }
 </style>

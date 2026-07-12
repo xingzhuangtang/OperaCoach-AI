@@ -83,16 +83,12 @@ onMounted(() => {
 
 <template>
   <div class="segments-list-container">
-    <div class="ink-bg"></div>
-
     <!-- 顶部导航 -->
-    <header class="header dreamy-card">
+    <header class="header">
       <div class="header-left">
-        <span class="logo">&#x1f3ad; 戏曲 AI 助教</span>
-      </div>
-      <div class="header-right">
-        <el-button class="dreamy-btn" @click="router.push('/works')">作品列表</el-button>
-        <el-button class="dreamy-btn" @click="router.push('/upload')">上传</el-button>
+        <button class="back-nav" @click="router.push('/hub')">← 返回</button>
+        <span class="logo">影子戏</span>
+        <span class="logo-sub">唱段列表</span>
       </div>
     </header>
 
@@ -130,32 +126,40 @@ onMounted(() => {
 
       <!-- 唱段列表 -->
       <div class="segments-grid">
-        <el-empty v-if="segments.length === 0" description="暂无唱段，请点击'创建新唱段'添加" />
+        <div v-if="segments.length === 0" class="empty-state">
+          <div class="empty-icon">曲</div>
+          <p class="empty-text">尚无唱段</p>
+          <p class="empty-hint">点击上方"创建新唱段"开始</p>
+        </div>
 
         <div
-          v-for="segment in segments"
+          v-for="(segment, index) in segments"
           :key="segment.id"
-          class="segment-card dreamy-card"
+          class="segment-card"
+          :style="{ animationDelay: `${index * 0.1}s` }"
           @click="handleSegmentClick(segment)"
         >
-          <div class="segment-info">
-            <h3 class="segment-name">{{ segment.name }}</h3>
-            <div class="segment-meta">
-              <span v-if="segment.audio_url" class="tag tag-audio">&#x1f3b5; 有音频</span>
-              <span v-if="segment.video_url" class="tag tag-video">&#x1f3ac; 有视频</span>
-              <span v-if="segment.is_separated" class="tag tag-separated">&#x1f3a4; 已分离</span>
-              <span v-if="segment.slices?.length" class="tag tag-slices">{{ segment.slices.length }} 个切片</span>
+          <div class="card-top-line"></div>
+          <div class="segment-inner">
+            <div class="segment-info">
+              <h3 class="segment-name">{{ segment.name }}</h3>
+              <div class="segment-meta">
+                <span v-if="segment.audio_url" class="tag tag-audio">&#x1f3b5; 有音频</span>
+                <span v-if="segment.video_url" class="tag tag-video">&#x1f3ac; 有视频</span>
+                <span v-if="segment.is_separated" class="tag tag-separated">&#x1f3a4; 已分离</span>
+                <span v-if="segment.slices?.length" class="tag tag-slices">{{ segment.slices.length }} 个切片</span>
+              </div>
             </div>
-          </div>
-          <div class="segment-actions">
-            <el-button
-              type="danger"
-              text
-              size="small"
-              @click.stop="handleDeleteSegment(segment)"
-            >
-              删除
-            </el-button>
+            <div class="segment-actions">
+              <el-button
+                type="danger"
+                text
+                size="small"
+                @click.stop="handleDeleteSegment(segment)"
+              >
+                删除
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -167,6 +171,7 @@ onMounted(() => {
 .segments-list-container {
   min-height: 100vh;
   position: relative;
+  z-index: 1;
 }
 
 .header {
@@ -177,15 +182,48 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 100;
+  background: rgba(26, 26, 46, 0.9);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(184, 134, 11, 0.15);
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.back-nav {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.back-nav:hover {
+  color: #b8860b;
+  background: rgba(184, 134, 11, 0.08);
 }
 
 .logo {
-  font-size: 20px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #2b6cb0 0%, #d69e2e 100%);
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: 3px;
+}
+
+.logo-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 2px;
 }
 
 .main-content {
@@ -207,7 +245,11 @@ onMounted(() => {
 
 .back-btn {
   font-size: 14px;
-  color: #4a5568;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.back-btn:hover {
+  color: #b8860b;
 }
 
 .dreamy-title {
@@ -217,7 +259,7 @@ onMounted(() => {
 
 .meta {
   margin-top: 8px;
-  color: #718096;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .actions {
@@ -231,17 +273,54 @@ onMounted(() => {
 }
 
 .segment-card {
-  padding: 20px;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: cardFadeIn 0.6s ease-out forwards;
+  opacity: 0;
+  position: relative;
+}
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .segment-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+}
+
+.segment-card:hover .card-top-line {
+  background: linear-gradient(90deg, transparent 0%, #b8860b 50%, transparent 100%);
+  opacity: 1;
+}
+
+.card-top-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(184, 134, 11, 0.3) 50%, transparent 100%);
+  transition: all 0.3s ease;
+}
+
+.segment-inner {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border-radius: 8px;
+  border: 1px solid rgba(184, 134, 11, 0.15);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
 }
 
 .segment-info {
@@ -252,6 +331,8 @@ onMounted(() => {
   margin: 0 0 8px 0;
   font-size: 18px;
   font-weight: 600;
+  color: #e0e0e0;
+  letter-spacing: 2px;
 }
 
 .segment-meta {
@@ -264,32 +345,61 @@ onMounted(() => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(247, 250, 252, 0.8);
-  color: #4a5568;
+  border: 1px solid;
 }
 
 .tag-audio {
-  background: rgba(254, 243, 199, 0.5);
-  color: #d69e2e;
+  background: rgba(184, 134, 11, 0.1);
+  border-color: rgba(184, 134, 11, 0.3);
+  color: #b8860b;
 }
 
 .tag-video {
-  background: rgba(199, 210, 254, 0.5);
-  color: #2b6cb0;
+  background: rgba(58, 90, 120, 0.1);
+  border-color: rgba(58, 90, 120, 0.3);
+  color: #7a9ab8;
 }
 
 .tag-separated {
-  background: rgba(198, 246, 213, 0.5);
-  color: #276749;
+  background: rgba(74, 124, 89, 0.1);
+  border-color: rgba(74, 124, 89, 0.3);
+  color: #4a7c59;
 }
 
 .tag-slices {
-  background: rgba(237, 201, 255, 0.5);
-  color: #6b46c1;
+  background: rgba(184, 134, 11, 0.05);
+  border-color: rgba(184, 134, 11, 0.2);
+  color: rgba(184, 134, 11, 0.7);
 }
 
 .segment-actions {
   margin-left: 16px;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  color: rgba(184, 134, 11, 0.2);
+  margin-bottom: 20px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.empty-text {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.25);
 }
 
 .loading-wrapper {
@@ -298,6 +408,6 @@ onMounted(() => {
   justify-content: center;
   gap: 12px;
   padding: 60px;
-  color: #718096;
+  color: rgba(255, 255, 255, 0.4);
 }
 </style>

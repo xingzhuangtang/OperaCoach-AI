@@ -41,26 +41,19 @@ const handleCreateWork = async () => {
   await workFormRef.value.validate(async (valid: boolean) => {
     if (!valid) return
     try {
-      await createWork(workForm)
+      await createWork({
+        name: workForm.name,
+        category: workForm.category || undefined,
+        description: workForm.description || undefined,
+      })
       ElMessage.success('创建成功')
       dialogVisible.value = false
       Object.assign(workForm, { name: '', category: '', description: '' })
       await fetchWorks()
     } catch (e) {
-      // 已处理
+      ElMessage.error('创建失败')
     }
   })
-}
-
-const handleLogout = () => {
-  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(() => {
-    localStorage.removeItem('token')
-    router.push('/login')
-  }).catch(() => {})
 }
 
 const handleWorkClick = (work: OperaWork) => {
@@ -93,26 +86,23 @@ onMounted(() => {
 
 <template>
   <div class="works-container">
-    <div class="ink-bg"></div>
-
     <!-- 顶部导航 -->
-    <header class="header dreamy-card">
+    <header class="header">
       <div class="header-left">
-        <span class="logo">戏曲 AI 助教</span>
-      </div>
-      <div class="header-right">
-        <el-button type="primary" class="dreamy-btn" @click="router.push('/upload')">
-          上传管理
-        </el-button>
-        <el-button class="dreamy-btn" @click="handleLogout">退出</el-button>
+        <button class="back-nav" @click="router.push('/hub')">← 返回</button>
+        <span class="logo">影子戏</span>
+        <span class="logo-sub">作品管理</span>
       </div>
     </header>
 
     <!-- 主内容 -->
     <main class="main-content fade-in">
       <div class="page-header">
-        <h2 class="dreamy-title">我的作品</h2>
-        <el-button type="primary" class="dreamy-btn" @click="dialogVisible = true">
+        <div class="page-title-group">
+          <h2 class="dreamy-title">我的作品</h2>
+          <div class="title-underline"></div>
+        </div>
+        <el-button type="primary" class="dreamy-btn create-btn" @click="dialogVisible = true">
           新建作品
         </el-button>
       </div>
@@ -124,32 +114,43 @@ onMounted(() => {
       </div>
 
       <!-- 空状态 -->
-      <el-empty v-else-if="works.length === 0" description="暂无作品，点击右上角新建" />
+      <div v-else-if="works.length === 0" class="empty-state">
+        <div class="empty-icon">剑</div>
+        <p class="empty-text">江湖空空，尚无作品</p>
+        <p class="empty-hint">点击右上角"新建作品"开始你的戏曲之旅</p>
+      </div>
 
       <!-- 作品卡片网格 -->
       <div v-else class="works-grid">
         <div
-          v-for="work in works"
+          v-for="(work, index) in works"
           :key="work.id"
-          class="work-card dreamy-card"
+          class="work-card"
+          :style="{ animationDelay: `${index * 0.1}s` }"
           @click="handleWorkClick(work)"
         >
-          <div class="work-card-header">
-            <h3>{{ work.name }}</h3>
-            <el-button
-              type="danger"
-              size="small"
-              text
-              class="delete-btn"
-              @click.stop="handleDeleteWork(work)"
-            >
-              删除作品
-            </el-button>
+          <div class="card-top-line"></div>
+          <div class="work-card-inner">
+            <div class="work-card-header">
+              <h3>{{ work.name }}</h3>
+              <el-button
+                type="danger"
+                size="small"
+                text
+                class="delete-btn"
+                @click.stop="handleDeleteWork(work)"
+              >
+                删除
+              </el-button>
+            </div>
+            <el-tag v-if="work.category" type="warning" size="small" class="category-tag">
+              {{ work.category }}
+            </el-tag>
+            <p v-if="work.description" class="description">{{ work.description }}</p>
+            <div class="card-footer">
+              <span class="enter-text">进入唱段 →</span>
+            </div>
           </div>
-          <el-tag v-if="work.category" type="primary" size="small">
-            {{ work.category }}
-          </el-tag>
-          <p v-if="work.description" class="description">{{ work.description }}</p>
         </div>
       </div>
     </main>
@@ -191,6 +192,7 @@ onMounted(() => {
         </el-button>
       </template>
     </el-dialog>
+
   </div>
 </template>
 
@@ -198,6 +200,7 @@ onMounted(() => {
 .works-container {
   min-height: 100vh;
   position: relative;
+  z-index: 1;
 }
 
 .header {
@@ -208,15 +211,48 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 100;
+  background: rgba(26, 26, 46, 0.9);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(184, 134, 11, 0.15);
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.back-nav {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.back-nav:hover {
+  color: #b8860b;
+  background: rgba(184, 134, 11, 0.08);
 }
 
 .logo {
-  font-size: 20px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #2b6cb0 0%, #d69e2e 100%);
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: 3px;
+}
+
+.logo-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 2px;
 }
 
 .main-content {
@@ -229,30 +265,102 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
+}
+
+.page-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dreamy-title {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 50%, #b8860b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 4px;
+}
+
+.title-underline {
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, #b8860b, transparent);
+}
+
+.create-btn {
+  letter-spacing: 2px;
 }
 
 .works-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 24px;
 }
 
 .work-card {
-  padding: 24px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: cardFadeIn 0.6s ease-out forwards;
+  opacity: 0;
+  position: relative;
+}
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .work-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(43, 108, 176, 0.2);
+  transform: translateY(-6px);
+}
+
+.work-card:hover .card-top-line {
+  background: linear-gradient(90deg, transparent 0%, #b8860b 50%, transparent 100%);
+  opacity: 1;
+}
+
+.work-card:hover .enter-text {
+  color: #b8860b;
+  letter-spacing: 3px;
+}
+
+.card-top-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(184, 134, 11, 0.4) 50%, transparent 100%);
+  transition: all 0.3s ease;
+}
+
+.work-card-inner {
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border-radius: 8px;
+  border: 1px solid rgba(184, 134, 11, 0.15);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .work-card h3 {
+  font-size: 20px;
+  color: #e0e0e0;
+  letter-spacing: 2px;
   margin-bottom: 12px;
-  font-size: 18px;
-  color: #1a202c;
+  font-weight: 600;
 }
 
 .work-card-header {
@@ -260,6 +368,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
 .work-card-header h3 {
@@ -269,18 +378,61 @@ onMounted(() => {
 
 .delete-btn {
   flex-shrink: 0;
-  color: #e53e3e;
+  color: rgba(139, 0, 0, 0.6);
 }
 
 .delete-btn:hover {
-  color: #c53030;
+  color: #8b0000;
+}
+
+.category-tag {
+  align-self: flex-start;
+  margin-bottom: 12px;
 }
 
 .description {
-  margin-top: 12px;
-  color: #718096;
+  color: rgba(255, 255, 255, 0.5);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
+  flex: 1;
+}
+
+.card-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(184, 134, 11, 0.1);
+}
+
+.enter-text {
+  font-size: 13px;
+  color: rgba(184, 134, 11, 0.6);
+  letter-spacing: 2px;
+  transition: all 0.3s ease;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  color: rgba(184, 134, 11, 0.2);
+  margin-bottom: 20px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.empty-text {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.25);
 }
 
 .loading-wrapper {
@@ -289,6 +441,41 @@ onMounted(() => {
   justify-content: center;
   gap: 12px;
   padding: 60px;
-  color: #718096;
+  color: rgba(255, 255, 255, 0.4);
 }
+
+/* 弹窗样式 */
+.dreamy-dialog :deep(.el-dialog) {
+  background: rgba(26, 26, 46, 0.95);
+  border: 1px solid rgba(184, 134, 11, 0.3);
+}
+
+.dreamy-dialog :deep(.el-dialog__header) {
+  border-bottom: 1px solid rgba(184, 134, 11, 0.2);
+}
+
+.dreamy-dialog :deep(.el-dialog__title) {
+  color: #b8860b;
+  letter-spacing: 2px;
+}
+
+.dreamy-dialog :deep(.el-form-item__label) {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dreamy-dialog :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(184, 134, 11, 0.2);
+}
+
+.dreamy-dialog :deep(.el-input__inner) {
+  color: #e0e0e0;
+}
+
+.dreamy-dialog :deep(.el-textarea__inner) {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(184, 134, 11, 0.2);
+  color: #e0e0e0;
+}
+
 </style>

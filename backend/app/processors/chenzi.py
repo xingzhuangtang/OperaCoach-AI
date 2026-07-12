@@ -2,7 +2,65 @@
 数字简谱转衬字语气词映射器
 """
 import re
-from typing import List, Dict
+import numpy as np
+from typing import List, Dict, Optional
+
+# 十二平均律频率（C4=261.63 Hz 基准）
+NOTE_FREQS = {
+    "C": 261.63, "C#": 277.18, "D": 293.66, "D#": 311.13,
+    "E": 329.63, "F": 349.23, "F#": 369.99, "G": 392.00,
+    "G#": 415.30, "A": 440.00, "A#": 466.16, "B": 493.88,
+}
+
+# 简谱数字对应音名（C 大调）
+SOLFEGE_TO_NOTE = {
+    1: "C", 2: "D", 3: "E", 4: "F", 5: "G", 6: "A", 7: "B",
+}
+
+
+def freq_to_note(freq: float) -> Optional[str]:
+    """将频率映射到最近的十二平均律音符"""
+    if freq <= 0:
+        return None
+    # 找到最接近的八度
+    best_note = None
+    best_dist = float('inf')
+    for note_name, base_freq in NOTE_FREQS.items():
+        # 在不同八度中搜索
+        for octave in range(-1, 3):
+            f = base_freq * (2 ** octave)
+            # 使用对数距离
+            dist = abs(np.log2(freq / f))
+            if dist < best_dist:
+                best_dist = dist
+                best_note = note_name
+    return best_note
+
+
+def freq_to_solfege(freq: float, key: str = "C") -> int:
+    """将频率映射到简谱数字 (1-7)，默认 C 大调"""
+    if freq <= 0:
+        return 0
+    # 找到最近的音符
+    note = freq_to_note(freq)
+    if not note:
+        return 0
+    # 计算音级（相对于调性）
+    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    key_offset = note_names.index(key)
+    note_offset = note_names.index(note)
+    # 大调音阶：1-2-3-4-5-6-7 对应全全半全全全半
+    major_scale = [0, 2, 4, 5, 7, 9, 11]  # 音级偏移
+    semitone = (note_offset - key_offset) % 12
+    # 找到最接近的大调音级
+    best = 0
+    best_dist = 13
+    for i, s in enumerate(major_scale):
+        dist = abs(semitone - s)
+        if dist < best_dist:
+            best_dist = dist
+            best = i + 1
+    return best
 
 
 class ChenziMapper:
@@ -18,6 +76,8 @@ class ChenziMapper:
         "3": "咦",
         "4": "呦",
         "5": "呜",
+        "6": "啦",
+        "7": "嘻",
     }
 
     def __init__(self, custom_mapping: Dict[str, str] = None):
@@ -101,21 +161,61 @@ class ChenziMapper:
         return self.mapping.copy()
 
     def auto_generate_chenzi(self, lyrics: str, separator: str = "-") -> Dict[str, str]:
-        """根据歌词字数，自动循环 1-5 生成衬字谱
+        """根据歌词字数，自动循环 1-5 生成衬字谱（降级方案，无音高数据时使用）"""
+        char_count = len(lyrics.replace(" ", "").replace("\n", "").strip())
+        if char_count == 0:
+            return {"chenzi": "", "notation": ""}
+        cycle = ["1", "2", "3", "4", "5"]
+        digits = [cycle[i % 5] for i in range(char_count)]
+        notation = " ".join(digits)
+        chenzi = self.to_chenzi_string(notation, separator)
+        return {"chenzi": chenzi, "notation": notation}
 
-        规则：按字数循环映射 1=啊 2=哎 3=咦 4=呦 5=呜
-        例如："海岛冰轮初转腾"（7 字）→ 1-2-3-4-5-1-2 → 啊-哎-咦-呦-呜-啊-哎
-
-        返回：{"chenzi": "啊-哎-咦-呦-呜-啊-哎", "notation": "1 2 3 4 5 1 2"}
+    def generate_chenzi_from_pitch(
+        self,
+        lyrics: str,
+        pitches: List[Optional[float]],
+        separator: str = "-",
+    ) -> Dict[str, str]:
         """
-        # 去除空格和换行，计算有效字数
+        根据真实音高数据生成精确的简谱和衬字谱
+        将音高序列分段（按歌词字数），每段取中位数频率映射到简谱
+        """
+        # 计算有效字数
         char_count = len(lyrics.replace(" ", "").replace("\n", "").strip())
         if char_count == 0:
             return {"chenzi": "", "notation": ""}
 
-        # 循环 1-5 生成衬字
-        cycle = ["1", "2", "3", "4", "5"]
-        digits = [cycle[i % 5] for i in range(char_count)]
+        # 过滤有效音高
+        valid_pitches = [p for p in pitches if p is not None and p > 0]
+        if not valid_pitches:
+            # 无音高数据，降级到循环映射
+            return self.auto_generate_chenzi(lyrics, separator)
+
+        # 将音高序列均匀分段
+        total_frames = len(pitches)
+        segment_len = total_frames // char_count
+        if segment_len < 1:
+            segment_len = 1
+
+        digits = []
+        for i in range(char_count):
+            start = i * segment_len
+            end = start + segment_len if i < char_count - 1 else total_frames
+            segment = pitches[start:end]
+            valid_segment = [p for p in segment if p is not None and p > 0]
+
+            if not valid_segment:
+                digits.append("5")  # 默认
+                continue
+
+            # 取中位数频率（抗干扰）
+            median_freq = float(np.median(valid_segment))
+            solfege = freq_to_solfege(median_freq)
+            # 简谱只显示 1-7
+            digit = str(solfege) if 1 <= solfege <= 7 else "5"
+            digits.append(digit)
+
         notation = " ".join(digits)
         chenzi = self.to_chenzi_string(notation, separator)
 
