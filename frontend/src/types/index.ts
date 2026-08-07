@@ -35,6 +35,7 @@ export interface SegmentSlice {
   numbered_notation: string | null
   commands: string | null
   pitches: any[] | null
+  breath_curve: number[] | null
   audio_url: string | null
 }
 

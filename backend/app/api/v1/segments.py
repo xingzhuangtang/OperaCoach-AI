@@ -367,6 +367,79 @@ async def get_pitches(
     return {"slices": results}
 
 
+@router.get("/{segment_id}/breath-curve")
+async def get_breath_curve(
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    提取所有切片的气息使用曲线（RMS 能量包络）
+    结果缓存到数据库，下次直接返回
+    """
+    from app.processors.audio import AudioProcessor
+    from app.core.config import settings
+    from pathlib import Path
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    slices = db.query(SegmentSlice).filter(
+        SegmentSlice.segment_id == segment_id
+    ).order_by(SegmentSlice.slice_index).all()
+
+    if not slices:
+        raise HTTPException(status_code=400, detail="没有切片")
+
+    processor = AudioProcessor()
+    results = []
+
+    for slice in slices:
+        if slice.breath_curve:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_curve": slice.breath_curve
+            })
+            continue
+
+        if not slice.audio_url:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_curve": None
+            })
+            continue
+
+        audio_path = Path(settings.UPLOAD_DIR) / slice.audio_url.removeprefix("/uploads/")
+        if not audio_path.exists():
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_curve": None
+            })
+            continue
+
+        try:
+            breath_curve = processor.extract_breath_curve(str(audio_path))
+            slice.breath_curve = breath_curve
+            db.commit()
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_curve": breath_curve
+            })
+        except Exception as e:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_curve": None,
+                "error": str(e)
+            })
+
+    return {"slices": results}
+
+
 @router.post("/{segment_id}/regenerate-chenzi")
 async def regenerate_chenzi(
     segment_id: int,

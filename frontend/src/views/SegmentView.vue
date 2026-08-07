@@ -3,7 +3,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, MoreFilled } from '@element-plus/icons-vue'
-import { getSegmentDetail, sliceAudio, extractLyrics, separateAudio as separateAudioApi, smartSlice as smartSliceApi, updateLyrics, updateSliceLyrics, getSegmentPitches, regenerateChenzi } from '@/api/segments'
+import { getSegmentDetail, sliceAudio, extractLyrics, separateAudio as separateAudioApi, smartSlice as smartSliceApi, updateLyrics, updateSliceLyrics, getSegmentPitches, getBreathCurve, regenerateChenzi } from '@/api/segments'
 import { extractAudio } from '@/api/upload'
 import { getMapping } from '@/api/chenzi'
 import { playMelody, stopMelody, getIsPlaying, setOnNoteCallback } from '@/utils/audio'
@@ -43,9 +43,21 @@ const pitchDisplayMode = ref<'lyrics' | 'chenzi'>('lyrics')  // 音高显示模�
 const playingSliceId = ref<number | null>(null)  // 正在播放哼唱的切片 ID
 const chenziHighlightIndex = ref<number>(-1)  // 当前高亮的衬字索引
 
+// 气息曲线数据
+const breathCurveLoaded = ref(false)
+const breathCurveLoading = ref(false)
+
 // 音高放大弹窗
 const zoomDialogVisible = ref(false)
 const zoomedSlice = ref<SegmentSlice | null>(null)
+
+// 气息曲线放大弹窗
+const breathZoomDialogVisible = ref(false)
+const breathZoomedSlice = ref<SegmentSlice | null>(null)
+const breathAnimationProgress = ref(0)
+const breathAnimating = ref(false)
+const breathAudioRef = ref<HTMLAudioElement | null>(null)
+const breathAnimationSpeed = ref(1)
 
 // 动画状态
 const animating = ref(false)
@@ -242,6 +254,24 @@ const loadPitches = async () => {
     ElMessage.error('音高提取失败')
   } finally {
     pitchesLoading.value = false
+  }
+}
+
+const loadBreathCurve = async () => {
+  if (breathCurveLoaded.value || !segment.value) return
+  breathCurveLoading.value = true
+  try {
+    const { data } = await getBreathCurve(segment.value.id)
+    const breathMap = new Map(data.slices.map((s: any) => [s.slice_id, s.breath_curve]))
+    slices.value = slices.value.map(s => ({
+      ...s,
+      breath_curve: breathMap.get(s.id) || s.breath_curve
+    }))
+    breathCurveLoaded.value = true
+  } catch (e) {
+    ElMessage.error('气息曲线提取失败')
+  } finally {
+    breathCurveLoading.value = false
   }
 }
 
@@ -574,6 +604,45 @@ const renderPitchSparkline = (pitches: (number | null)[], width = 120, height = 
   </svg>`
 }
 
+// 获取完整气息曲线（所有切片拼接）
+const getFullBreathCurve = () => {
+  if (!breathCurveLoaded.value || slices.value.length === 0) return []
+  return slices.value.flatMap(s => s.breath_curve || [])
+}
+
+// 渲染气息曲线 SVG（面积图）
+const renderBreathSparkline = (curve: number[], width = 120, height = 30) => {
+  if (curve.length === 0) return ''
+
+  const padding = 2
+  const drawWidth = width - padding * 2
+  const drawHeight = height - padding * 2
+
+  const points: string[] = []
+  const areaPoints: string[] = []
+  const stepX = drawWidth / (curve.length - 1 || 1)
+
+  for (let i = 0; i < curve.length; i++) {
+    const x = padding + i * stepX
+    const y = padding + drawHeight - curve[i] * drawHeight
+    points.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+    areaPoints.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+  }
+
+  if (points.length < 2) return ''
+
+  // 面积图：底部闭合
+  const lastX = (padding + (curve.length - 1) * stepX).toFixed(1)
+  const firstX = padding.toFixed(1)
+  const bottomY = (padding + drawHeight).toFixed(1)
+  const areaPath = `${areaPoints.join(' ')} ${lastX},${bottomY} ${firstX},${bottomY}`
+
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="${areaPath}" fill="rgba(76,175,80,0.15)" stroke="none"/>
+    <polyline points="${points.join(' ')}" fill="none" stroke="#4caf50" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`
+}
+
 // 计算字符在图表中的 x 坐标位置
 const getCharPositions = (lyrics: string, pitchCount: number, chartWidth: number, padding: number) => {
   const chars = [...lyrics.replace(/\s+/g, '')]
@@ -811,6 +880,180 @@ const onAudioEnded = () => {
   animating.value = false
   animationProgress.value = 1
 }
+
+// 气息曲线放大弹窗功能
+const openBreathZoom = (slice: SegmentSlice) => {
+  breathZoomedSlice.value = slice
+  breathAnimationProgress.value = 0
+  breathAnimating.value = false
+  nextTick(() => {
+    const audio = breathAudioRef.value
+    if (audio) {
+      audio.pause()
+      audio.currentTime = 0
+    }
+  })
+  breathZoomDialogVisible.value = true
+}
+
+const updateBreathProgressFromAudio = () => {
+  const audio = breathAudioRef.value
+  const slice = breathZoomedSlice.value
+  if (!audio || !slice) return
+  const duration = slice.end_time - slice.start_time
+  if (duration <= 0) return
+  const progress = Math.min(audio.currentTime / duration, 1)
+  breathAnimationProgress.value = progress
+  if (progress >= 1) {
+    breathAnimating.value = false
+  }
+}
+
+const startBreathAnimation = () => {
+  const audio = breathAudioRef.value
+  if (!audio) return
+  audio.playbackRate = breathAnimationSpeed.value
+  audio.currentTime = 0
+  audio.play()
+  breathAnimating.value = true
+  breathAnimationProgress.value = 0
+}
+
+const stopBreathAnimation = () => {
+  const audio = breathAudioRef.value
+  if (audio) audio.pause()
+  breathAnimating.value = false
+}
+
+const resetBreathAnimation = () => {
+  const audio = breathAudioRef.value
+  if (audio) {
+    audio.pause()
+    audio.currentTime = 0
+  }
+  breathAnimating.value = false
+  breathAnimationProgress.value = 0
+}
+
+const onBreathSpeedChange = () => {
+  const audio = breathAudioRef.value
+  if (audio) {
+    audio.playbackRate = breathAnimationSpeed.value
+  }
+}
+
+const onBreathAudioEnded = () => {
+  breathAnimating.value = false
+  breathAnimationProgress.value = 1
+}
+
+// 根据气息强度获取彩虹色（蓝->青->绿->黄->红）
+const getRainbowColor = (intensity: number, alpha: number = 1) => {
+  // 将 0-1 的强度映射到色相 240(蓝)->0(红)
+  const hue = 240 - intensity * 240
+  return `hsla(${hue}, 80%, 50%, ${alpha})`
+}
+
+// 渲染放大的气息曲线（带动画进度和彩虹色）
+const zoomedBreathChart = computed(() => {
+  const slice = breathZoomedSlice.value
+  if (!slice || !slice.breath_curve) return ''
+
+  const curve = slice.breath_curve
+  const width = 800
+  const height = 200
+  const padding = 40
+  const charAreaHeight = 40
+
+  const drawWidth = width - padding * 2
+  const drawHeight = height - padding * 2 - charAreaHeight
+
+  const progress = breathAnimationProgress.value
+  const progressX = padding + progress * drawWidth
+
+  const stepX = drawWidth / (curve.length - 1 || 1)
+
+  let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="user-select:none">`
+
+  // 定义渐变
+  svg += `<defs>`
+
+  // 为每个线段创建独立的渐变
+  for (let i = 0; i < curve.length - 1; i++) {
+    const x1 = padding + i * stepX
+    const x2 = padding + (i + 1) * stepX
+    const color1 = getRainbowColor(curve[i])
+    const color2 = getRainbowColor(curve[i + 1])
+    svg += `<linearGradient id="breathGrad${i}" x1="${x1}" y1="0" x2="${x2}" y2="0" gradientUnits="userSpaceOnUse">`
+    svg += `<stop offset="0%" stop-color="${color1}"/>`
+    svg += `<stop offset="100%" stop-color="${color2}"/>`
+    svg += `</linearGradient>`
+  }
+
+  // 面积图渐变（从底部透明到顶部彩色）
+  svg += `<linearGradient id="areaGrad" x1="0" y1="${padding + drawHeight}" x2="0" y2="${padding}" gradientUnits="userSpaceOnUse">`
+  svg += `<stop offset="0%" stop-color="rgba(100,100,255,0.05)"/>`
+  svg += `<stop offset="100%" stop-color="rgba(255,100,100,0.15)"/>`
+  svg += `</linearGradient>`
+
+  svg += `</defs>`
+
+  // 网格线
+  for (let i = 0; i <= 4; i++) {
+    const gy = padding + (drawHeight / 4) * i
+    const value = (1 - i / 4).toFixed(2)
+    svg += `<line x1="${padding}" y1="${gy}" x2="${width - padding}" y2="${gy}" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>`
+    svg += `<text x="${padding - 5}" y="${gy + 4}" text-anchor="end" font-size="10" fill="#666">${value}</text>`
+  }
+
+  // 绘制彩虹色线段
+  for (let i = 0; i < curve.length - 1; i++) {
+    const x1 = padding + i * stepX
+    const y1 = padding + drawHeight - curve[i] * drawHeight
+    const x2 = padding + (i + 1) * stepX
+    const y2 = padding + drawHeight - curve[i + 1] * drawHeight
+
+    // 判断是否在已播放范围内
+    const isPlayed = x2 <= progressX
+    const isPartial = x1 < progressX && x2 > progressX
+
+    if (isPlayed || isPartial) {
+      // 已播放部分：鲜艳颜色
+      svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="url(#breathGrad${i})" stroke-width="3" stroke-linecap="round"/>`
+    } else {
+      // 未播放部分：半透明
+      const color1 = getRainbowColor(curve[i], 0.3)
+      const color2 = getRainbowColor(curve[i + 1], 0.3)
+      svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color1}" stroke-width="2" stroke-linecap="round"/>`
+    }
+  }
+
+  // 歌词显示
+  const lyrics = slice.lyrics || ''
+  const chars = [...lyrics.replace(/\s+/g, '')]
+  if (chars.length > 0) {
+    const charY = height - padding + 15
+    const charStepX = drawWidth / (chars.length - 1 || 1)
+
+    chars.forEach((char, i) => {
+      const x = padding + i * charStepX
+      const highlighted = progress > 0 && x <= progressX
+      const color = highlighted ? getRainbowColor(0.7) : '#666'
+      const weight = highlighted ? '700' : '400'
+      const size = highlighted ? '13' : '11'
+      svg += `<text x="${x}" y="${charY}" text-anchor="middle" font-size="${size}" font-weight="${weight}" fill="${color}">${char}</text>`
+    })
+  }
+
+  // 进度线
+  if (progress > 0 && progress < 1) {
+    svg += `<line x1="${progressX}" y1="${padding}" x2="${progressX}" y2="${height - padding}" stroke="url(#areaGrad)" stroke-width="2" opacity="0.9"/>`
+    svg += `<circle cx="${progressX}" cy="${padding}" r="5" fill="${getRainbowColor(0.5)}" stroke="white" stroke-width="1.5"/>`
+  }
+
+  svg += `</svg>`
+  return svg
+})
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60)
@@ -1078,6 +1321,13 @@ onMounted(() => {
             >
               音高+衬字
             </el-button>
+            <el-button
+              :type="breathCurveLoaded ? 'success' : 'default'"
+              :loading="breathCurveLoading"
+              @click="loadBreathCurve"
+            >
+              {{ breathCurveLoaded ? '气息曲线' : '加载气息' }}
+            </el-button>
           </el-button-group>
         </div>
 
@@ -1095,6 +1345,99 @@ onMounted(() => {
         <div v-if="pitchesLoaded && getFullPitches().length > 0" class="pitch-overview dreamy-card">
           <h4>音高曲线</h4>
           <div class="pitch-chart" v-html="renderPitchSparkline(getFullPitches(), 1100, 80)"></div>
+
+          <!-- 音高曲线作用说明 -->
+          <div class="pitch-guide">
+            <h5>为什么要看音高曲线？</h5>
+            <div class="pitch-benefits">
+              <div class="pitch-benefit-item">
+                <span class="pitch-benefit-icon">🎶</span>
+                <div class="pitch-benefit-content">
+                  <strong>校准音准</strong>
+                  <p>直观看到每个字唱得多高多低，对比原曲发现跑调位置</p>
+                </div>
+              </div>
+              <div class="pitch-benefit-item">
+                <span class="pitch-benefit-icon">📈</span>
+                <div class="pitch-benefit-content">
+                  <strong>掌握旋律走向</strong>
+                  <p>曲线的起伏就是旋律的走向，帮您快速记忆唱腔的音高变化</p>
+                </div>
+              </div>
+              <div class="pitch-benefit-item">
+                <span class="pitch-benefit-icon">🎯</span>
+                <div class="pitch-benefit-content">
+                  <strong>发现音域范围</strong>
+                  <p>了解这段唱的最高音和最低音，评估是否适合自己的嗓音条件</p>
+                </div>
+              </div>
+              <div class="pitch-benefit-item">
+                <span class="pitch-benefit-icon">🔄</span>
+                <div class="pitch-benefit-content">
+                  <strong>对比学习进步</strong>
+                  <p>多次录音对比音高曲线，量化自己的音准改善程度</p>
+                </div>
+              </div>
+            </div>
+            <div class="pitch-tips">
+              <strong>💡 使用建议：</strong>
+              <ul>
+                <li>点击单句音高曲线可放大查看，配合歌词逐字对照音高变化</li>
+                <li>切换到"音高+衬字"模式，可以看到简谱数字与音高的对应关系</li>
+                <li>曲线越平滑说明音准越稳定，锯齿状波动通常意味着音准不稳</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- 完整气息曲线 -->
+        <div v-if="breathCurveLoaded && getFullBreathCurve().length > 0" class="breath-overview dreamy-card">
+          <h4>气息使用曲线</h4>
+          <p class="breath-desc">基于 RMS 能量包络，反映歌唱时的气息消耗强度</p>
+          <div class="breath-chart" v-html="renderBreathSparkline(getFullBreathCurve(), 1100, 80)"></div>
+          
+          <!-- 气息曲线作用说明 -->
+          <div class="breath-guide">
+            <h5>为什么要看气息曲线？</h5>
+            <div class="breath-benefits">
+              <div class="benefit-item">
+                <span class="benefit-icon">🎯</span>
+                <div class="benefit-content">
+                  <strong>发现换气点</strong>
+                  <p>曲线骤降处是专业演员的换气位置，帮您掌握正确的呼吸节奏</p>
+                </div>
+              </div>
+              <div class="benefit-item">
+                <span class="benefit-icon">💨</span>
+                <div class="benefit-content">
+                  <strong>控制气息消耗</strong>
+                  <p>避免一口气唱太多导致后段无力，学会合理分配气息</p>
+                </div>
+              </div>
+              <div class="benefit-item">
+                <span class="benefit-icon">🎵</span>
+                <div class="benefit-content">
+                  <strong>提升演唱稳定性</strong>
+                  <p>平稳的气息曲线意味着稳定的声音输出，减少颤抖和断续</p>
+                </div>
+              </div>
+              <div class="benefit-item">
+                <span class="benefit-icon">📊</span>
+                <div class="benefit-content">
+                  <strong>量化练习效果</strong>
+                  <p>对比不同练习的曲线变化，直观看到进步轨迹</p>
+                </div>
+              </div>
+            </div>
+            <div class="breath-tips">
+              <strong>💡 使用建议：</strong>
+              <ul>
+                <li>点击单句曲线可放大查看，跟随音频实时观察气息流动</li>
+                <li>注意曲线高峰和低谷，体会强弱变化与情感表达的关系</li>
+                <li>长期练习后，您的曲线会越来越接近专业演员的稳定性</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <!-- 衬字映射提示 -->
@@ -1227,15 +1570,15 @@ onMounted(() => {
                      title="点击放大查看"
                 ></div>
                 <div v-else class="pitch-sparkline-empty">-</div>
-                
+
                 <!-- 歌词/衬字显示 -->
                 <div v-if="pitchDisplayMode === 'lyrics'" class="pitch-lyrics">
                   {{ row.lyrics || '-' }}
                 </div>
                 <div v-else class="pitch-chenzi-groups">
                   <template v-if="row.numbered_notation && row.chenzi_lyrics">
-                    <div v-for="(group, idx) in parseNotationGroups(row.numbered_notation, row.chenzi_lyrics)" 
-                         :key="idx" 
+                    <div v-for="(group, idx) in parseNotationGroups(row.numbered_notation, row.chenzi_lyrics)"
+                         :key="idx"
                          class="chenzi-group">
                       <div class="group-notes">{{ group.notes.join(' ') }}</div>
                       <div class="group-chenzis">{{ group.chenzis.join('-') }}</div>
@@ -1243,6 +1586,19 @@ onMounted(() => {
                   </template>
                   <span v-else style="color: #ccc">-</span>
                 </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="breathCurveLoaded" label="气息" width="140">
+            <template #default="{ row }">
+              <div class="breath-display">
+                <div v-if="row.breath_curve && row.breath_curve.length >= 2"
+                     class="breath-sparkline breath-sparkline-clickable"
+                     v-html="renderBreathSparkline(row.breath_curve, 120, 30)"
+                     @click="openBreathZoom(row)"
+                     title="点击放大查看"
+                ></div>
+                <div v-else class="breath-sparkline-empty">-</div>
               </div>
             </template>
           </el-table-column>
@@ -1315,6 +1671,60 @@ onMounted(() => {
           </el-button>
           <span class="speed-label">速度：</span>
           <el-radio-group v-model="animationSpeed" size="small" @change="onSpeedChange">
+            <el-radio-button :value="0.5">0.5x</el-radio-button>
+            <el-radio-button :value="0.7">0.7x</el-radio-button>
+            <el-radio-button :value="0.9">0.9x</el-radio-button>
+            <el-radio-button :value="1">1x</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 气息曲线放大弹窗 -->
+    <el-dialog
+      v-model="breathZoomDialogVisible"
+      :title="breathZoomedSlice ? `气息曲线 - 第${breathZoomedSlice.slice_index}句` : ''"
+      width="860px"
+      class="breath-zoom-dialog"
+      @close="stopBreathAnimation"
+    >
+      <div v-if="breathZoomedSlice" class="breath-zoom-content">
+        <!-- 隐藏音频元素 -->
+        <audio
+          v-if="breathZoomedSlice.audio_url"
+          ref="breathAudioRef"
+          :src="breathZoomedSlice.audio_url"
+          @timeupdate="updateBreathProgressFromAudio"
+          @ended="onBreathAudioEnded"
+          style="display:none"
+        />
+
+        <!-- 信息栏 -->
+        <div class="breath-zoom-info">
+          <span class="breath-zoom-time">{{ formatTime(breathZoomedSlice.start_time) }} → {{ formatTime(breathZoomedSlice.end_time) }}</span>
+          <span class="breath-zoom-duration">时长 {{ (breathZoomedSlice.end_time - breathZoomedSlice.start_time).toFixed(1) }}s</span>
+          <span v-if="breathAnimating || breathAnimationProgress > 0" class="breath-zoom-progress-time">
+            {{ formatTime(breathZoomedSlice.start_time + breathAnimationProgress * (breathZoomedSlice.end_time - breathZoomedSlice.start_time)) }}
+          </span>
+        </div>
+
+        <!-- 气息曲线图 -->
+        <div class="breath-zoom-chart" v-html="zoomedBreathChart"></div>
+
+        <!-- 动画控制栏 -->
+        <div class="breath-zoom-controls">
+          <el-button
+            :type="breathAnimating ? 'danger' : 'primary'"
+            size="small"
+            @click="breathAnimating ? stopBreathAnimation() : (breathAnimationProgress >= 1 ? resetBreathAnimation() : startBreathAnimation())"
+          >
+            {{ breathAnimating ? '停止' : (breathAnimationProgress >= 1 ? '重播' : '播放') }}
+          </el-button>
+          <el-button size="small" @click="resetBreathAnimation" :disabled="breathAnimationProgress === 0 && !breathAnimating">
+            重置
+          </el-button>
+          <span class="breath-speed-label">速度：</span>
+          <el-radio-group v-model="breathAnimationSpeed" size="small" @change="onBreathSpeedChange">
             <el-radio-button :value="0.5">0.5x</el-radio-button>
             <el-radio-button :value="0.7">0.7x</el-radio-button>
             <el-radio-button :value="0.9">0.9x</el-radio-button>
@@ -1692,6 +2102,297 @@ onMounted(() => {
 .pitch-chart {
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* 音高曲线作用说明 */
+.pitch-guide {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(184, 134, 11, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(184, 134, 11, 0.2);
+}
+
+.pitch-guide h5 {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  color: #b8860b;
+  font-weight: 600;
+}
+
+.pitch-benefits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.pitch-benefit-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  transition: all 0.3s;
+}
+
+.pitch-benefit-item:hover {
+  background: rgba(184, 134, 11, 0.08);
+  transform: translateY(-2px);
+}
+
+.pitch-benefit-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.pitch-benefit-content {
+  flex: 1;
+}
+
+.pitch-benefit-content strong {
+  display: block;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.pitch-benefit-content p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+.pitch-tips {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border-left: 3px solid #b8860b;
+}
+
+.pitch-tips strong {
+  display: block;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 8px;
+}
+
+.pitch-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.pitch-tips li {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.pitch-tips li:last-child {
+  margin-bottom: 0;
+}
+
+/* 气息曲线可视化 */
+.breath-overview {
+  padding: 16px 24px;
+  margin-bottom: 16px;
+}
+
+.breath-overview h4 {
+  margin: 0 0 4px 0;
+  color: #4caf50;
+  font-size: 14px;
+}
+
+.breath-desc {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.breath-chart {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.breath-display {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breath-sparkline {
+  line-height: 1;
+}
+
+.breath-sparkline-empty {
+  color: #ccc;
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* 气息曲线可点击 */
+.breath-sparkline-clickable {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.breath-sparkline-clickable:hover {
+  opacity: 0.7;
+}
+
+/* 气息曲线放大弹窗 */
+.breath-zoom-dialog :deep(.el-dialog) {
+  background: rgba(26, 26, 46, 0.97);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.breath-zoom-dialog :deep(.el-dialog__header) {
+  border-bottom: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.breath-zoom-dialog :deep(.el-dialog__title) {
+  color: #4caf50;
+  letter-spacing: 2px;
+}
+
+.breath-zoom-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.breath-zoom-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.breath-zoom-time {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.breath-zoom-progress-time {
+  color: #4caf50;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.breath-zoom-chart {
+  overflow-x: auto;
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px;
+}
+
+.breath-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(76, 175, 80, 0.15);
+}
+
+.breath-speed-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 8px;
+}
+
+/* 气息曲线作用说明 */
+.breath-guide {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(76, 175, 80, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.breath-guide h5 {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.breath-benefits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.benefit-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  transition: all 0.3s;
+}
+
+.benefit-item:hover {
+  background: rgba(76, 175, 80, 0.08);
+  transform: translateY(-2px);
+}
+
+.benefit-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.benefit-content {
+  flex: 1;
+}
+
+.benefit-content strong {
+  display: block;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.benefit-content p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+.breath-tips {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border-left: 3px solid #4caf50;
+}
+
+.breath-tips strong {
+  display: block;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 8px;
+}
+
+.breath-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.breath-tips li {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.breath-tips li:last-child {
+  margin-bottom: 0;
 }
 
 .pitch-sparkline {

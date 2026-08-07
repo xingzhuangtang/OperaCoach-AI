@@ -20,6 +20,7 @@ class SegmentSlice(Base):
     numbered_notation = Column(String(500))  # 原始数字简谱（如 "3 5 6 1 2"）
     commands = Column(String(2000))
     pitches = Column(JSON)  # 音高序列 JSON 数组
+    breath_curve = Column(JSON)  # 气息使用曲线 JSON 数组 (RMS 能量包络)
     audio_url = Column(String(500))  # 切片音频文件 URL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

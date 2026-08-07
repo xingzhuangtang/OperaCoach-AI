@@ -248,6 +248,48 @@ class AudioProcessor:
         )
         return [float(f) if not np.isnan(f) else None for f in f0]
 
+    def extract_breath_curve(self, audio_path: str, hop_length: int = 512) -> List[float]:
+        """
+        从音频中提取气息使用曲线
+        使用 RMS 能量包络作为气息强度的近似指标
+        返回: [energy_1, energy_2, ...] 归一化后的浮点数组 (0.0 ~ 1.0)
+
+        改进点：
+        1. 使用更大的 frame_length 提高低频分辨率
+        2. 对数压缩使低强度变化更明显
+        3. 更强的平滑处理减少噪声
+        """
+        y, sr = self.load_audio(audio_path)
+        if y.ndim > 1:
+            y = y.mean(axis=1)
+
+        # 计算 RMS 能量包络（使用较大的 frame_length 提高稳定性）
+        rms = librosa.feature.rms(y=y, frame_length=4096, hop_length=hop_length)[0]
+
+        # 对数压缩：使低强度变化更明显，更符合人耳感知
+        # log(1 + x) 压缩动态范围
+        rms_compressed = np.log1p(rms * 10)  # 乘以 10 增强对比度
+
+        # 平滑处理（使用更大的窗口，减少瞬时噪声）
+        kernel_size = 11  # 增大约束
+        if len(rms_compressed) > kernel_size:
+            # 使用高斯平滑而非简单平均，更自然
+            sigma = kernel_size / 6
+            x = np.arange(kernel_size) - kernel_size // 2
+            kernel = np.exp(-x**2 / (2 * sigma**2))
+            kernel = kernel / kernel.sum()
+            rms_compressed = np.convolve(rms_compressed, kernel, mode='same')
+
+        # 归一化到 0-1 范围
+        max_rms = np.max(rms_compressed)
+        min_rms = np.min(rms_compressed)
+        if max_rms > min_rms:
+            rms_compressed = (rms_compressed - min_rms) / (max_rms - min_rms)
+        else:
+            rms_compressed = np.zeros_like(rms_compressed)
+
+        return [float(v) for v in rms_compressed]
+
     def generate_music(self, lyrics: str, style: str = "流行", duration: int = 30, reference_audio_url: str = "") -> Dict[str, Any]:
         """
         调用阿里 Fun-Music API 生成音乐（同步模式）

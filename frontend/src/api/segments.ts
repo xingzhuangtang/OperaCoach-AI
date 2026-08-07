@@ -25,6 +25,8 @@ export const updateSliceLyrics = (segmentId: number, sliceId: number, lyrics: st
   api.put<{ message: string; lyrics: string }>(`/segments/${segmentId}/slices/${sliceId}`, { lyrics })
 export const getSegmentPitches = (id: number) =>
   api.get<{ slices: Array<{ slice_id: number; slice_index: number; pitches: (number | null)[] }> }>(`/segments/${id}/pitches`)
+export const getBreathCurve = (id: number) =>
+  api.get<{ slices: Array<{ slice_id: number; slice_index: number; breath_curve: number[] | null }> }>(`/segments/${id}/breath-curve`)
 export const regenerateChenzi = (id: number) =>
   api.post<{ message: string; updated_count: number }>(`/segments/${id}/regenerate-chenzi`)
 export const generateMusic = (id: number, data: { lyrics: string; style?: string; duration?: number }) =>
