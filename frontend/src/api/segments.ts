@@ -25,8 +25,12 @@ export const updateSliceLyrics = (segmentId: number, sliceId: number, lyrics: st
   api.put<{ message: string; lyrics: string }>(`/segments/${segmentId}/slices/${sliceId}`, { lyrics })
 export const getSegmentPitches = (id: number) =>
   api.get<{ slices: Array<{ slice_id: number; slice_index: number; pitches: (number | null)[] }> }>(`/segments/${id}/pitches`)
-export const getBreathCurve = (id: number) =>
-  api.get<{ slices: Array<{ slice_id: number; slice_index: number; breath_curve: number[] | null }> }>(`/segments/${id}/breath-curve`)
+export const getVolumeCurve = (id: number) =>
+  api.get<{ slices: Array<{ slice_id: number; slice_index: number; volume_curve: number[] | null }> }>(`/segments/${id}/volume-curve`)
+export const getBreathTimeline = (id: number, force = false) =>
+  api.get<{ breath_timeline: import('@/types').BreathEvent[] }>(`/segments/${id}/breath-timeline?force=${force}`)
+export const getSlicesBreathTimeline = (id: number, force = false) =>
+  api.get<{ slices: Array<{ slice_id: number; slice_index: number; breath_timeline: import('@/types').BreathEvent[] | null }> }>(`/segments/${id}/slices-breath-timeline?force=${force}`)
 export const regenerateChenzi = (id: number) =>
   api.post<{ message: string; updated_count: number }>(`/segments/${id}/regenerate-chenzi`)
 export const generateMusic = (id: number, data: { lyrics: string; style?: string; duration?: number }) =>

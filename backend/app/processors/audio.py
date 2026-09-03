@@ -248,32 +248,30 @@ class AudioProcessor:
         )
         return [float(f) if not np.isnan(f) else None for f in f0]
 
-    def extract_breath_curve(self, audio_path: str, hop_length: int = 512) -> List[float]:
+    def extract_volume_curve(self, audio_path: str, hop_length: int = 512) -> List[float]:
         """
-        从音频中提取气息使用曲线
-        使用 RMS 能量包络作为气息强度的近似指标
-        返回: [energy_1, energy_2, ...] 归一化后的浮点数组 (0.0 ~ 1.0)
+        从音频中提取音量变化曲线
+        使用 RMS（均方根）能量包络反映声音响度的时间变化
+        返回: [volume_1, volume_2, ...] 归一化后的浮点数组 (0.0 ~ 1.0)
 
-        改进点：
-        1. 使用更大的 frame_length 提高低频分辨率
-        2. 对数压缩使低强度变化更明显
-        3. 更强的平滑处理减少噪声
+        说明：
+        - RMS 能量反映声音的整体响度，受气息、声带闭合、共鸣共同影响
+        - 对数压缩使低响度变化更明显，更符合人耳感知特性
+        - 高斯平滑减少瞬时噪声，保留整体趋势
         """
         y, sr = self.load_audio(audio_path)
         if y.ndim > 1:
             y = y.mean(axis=1)
 
-        # 计算 RMS 能量包络（使用较大的 frame_length 提高稳定性）
+        # 计算 RMS 能量包络
         rms = librosa.feature.rms(y=y, frame_length=4096, hop_length=hop_length)[0]
 
-        # 对数压缩：使低强度变化更明显，更符合人耳感知
-        # log(1 + x) 压缩动态范围
-        rms_compressed = np.log1p(rms * 10)  # 乘以 10 增强对比度
+        # 对数压缩：使低响度变化更明显，更符合人耳感知
+        rms_compressed = np.log1p(rms * 10)
 
-        # 平滑处理（使用更大的窗口，减少瞬时噪声）
-        kernel_size = 11  # 增大约束
+        # 高斯平滑：减少瞬时噪声，保留整体趋势
+        kernel_size = 11
         if len(rms_compressed) > kernel_size:
-            # 使用高斯平滑而非简单平均，更自然
             sigma = kernel_size / 6
             x = np.arange(kernel_size) - kernel_size // 2
             kernel = np.exp(-x**2 / (2 * sigma**2))
@@ -289,6 +287,181 @@ class AudioProcessor:
             rms_compressed = np.zeros_like(rms_compressed)
 
         return [float(v) for v in rms_compressed]
+
+    def detect_breath_timeline(self, audio_path: str, hop_length: int = 512) -> List[Dict[str, Any]]:
+        """
+        检测歌唱时的气息时间线
+        识别：吸气（silent gaps）、呼气（voiced segments）、换气（长停顿）
+        返回: [{type: "inhale"|"exhale"|"breath_change", start_time, end_time, duration}, ...]
+
+        使用百分位数自适应阈值：RMS 最低 20% 的帧视为静音（吸气/换气），
+        确保任何音量水平的音频都能检测到气息间隙。
+        """
+        y, sr = self.load_audio(audio_path)
+        if y.ndim > 1:
+            y = y.mean(axis=1)
+
+        # 计算 RMS 能量包络
+        rms = librosa.feature.rms(y=y, frame_length=4096, hop_length=hop_length)[0]
+
+        # 百分位数自适应阈值：取 RMS 分布的第 20 百分位作为阈值
+        # 这样无论音频整体音量如何，都能检测出相对最安静的 20% 帧
+        threshold = np.percentile(rms, 20)
+
+        # 二值化：voiced=1, silence=0
+        voiced_mask = rms > threshold
+
+        # 平滑处理，去除瞬时噪声
+        kernel_size = 3
+        if len(voiced_mask) > kernel_size:
+            kernel = np.ones(kernel_size) / kernel_size
+            voiced_smooth = np.convolve(voiced_mask.astype(float), kernel, mode='same') > 0.5
+        else:
+            voiced_smooth = voiced_mask
+
+        # 提取连续区域
+        regions = []
+        in_voiced = bool(voiced_smooth[0])
+        start_frame = 0
+
+        for i in range(1, len(voiced_smooth)):
+            if voiced_smooth[i] != in_voiced:
+                end_frame = i
+                regions.append({
+                    'voiced': in_voiced,
+                    'start_frame': start_frame,
+                    'end_frame': end_frame,
+                })
+                in_voiced = bool(voiced_smooth[i])
+                start_frame = i
+
+        # 最后一个区域
+        regions.append({
+            'voiced': in_voiced,
+            'start_frame': start_frame,
+            'end_frame': len(voiced_smooth),
+        })
+
+        # 合并过短的静音段（< 30ms 的可能是噪声而非真正的气息）
+        merged_regions = []
+        for region in regions:
+            duration = (region['end_frame'] - region['start_frame']) * hop_length / sr
+            if not region['voiced'] and duration < 0.03 and merged_regions:
+                merged_regions[-1]['end_frame'] = region['end_frame']
+            else:
+                merged_regions.append(region)
+
+        # 对 voiced 段做二次分割：检测 RMS 局部低谷，将长呼气拆成多个短句
+        final_regions = []
+        for region in merged_regions:
+            if region['voiced']:
+                sub_regions = self._split_voiced_by_valleys(
+                    region, rms, hop_length, sr
+                )
+                final_regions.extend(sub_regions)
+            else:
+                final_regions.append(region)
+
+        # 转换为时间线事件
+        breath_timeline = []
+        for region in final_regions:
+            start_time = region['start_frame'] * hop_length / sr
+            end_time = region['end_frame'] * hop_length / sr
+            duration = end_time - start_time
+
+            if region['voiced']:
+                breath_timeline.append({
+                    'type': 'exhale',
+                    'start_time': round(start_time, 3),
+                    'end_time': round(end_time, 3),
+                    'duration': round(duration, 3),
+                })
+            else:
+                if duration >= 0.3:
+                    breath_type = 'breath_change'
+                else:
+                    breath_type = 'inhale'
+
+                breath_timeline.append({
+                    'type': breath_type,
+                    'start_time': round(start_time, 3),
+                    'end_time': round(end_time, 3),
+                    'duration': round(duration, 3),
+                })
+
+        return breath_timeline
+
+    def _split_voiced_by_valleys(
+        self, region: Dict, rms: np.ndarray, hop_length: int, sr: int
+    ) -> List[Dict]:
+        """
+        在 voiced 段内部检测 RMS 局部低谷，将长呼气段拆成多个短句
+        低谷判定：RMS 低于该 voiced 段内峰值的 40%，且持续至少 80ms
+        """
+        start = region['start_frame']
+        end = region['end_frame']
+        segment_rms = rms[start:end]
+
+        if len(segment_rms) < 5:
+            return [region]
+
+        peak = np.max(segment_rms)
+        if peak <= 0:
+            return [region]
+
+        valley_threshold = peak * 0.4
+        min_valley_frames = int(0.08 * sr / hop_length)
+        if min_valley_frames < 1:
+            min_valley_frames = 1
+
+        # 找到所有低于阈值的连续区间
+        below_mask = segment_rms < valley_threshold
+
+        valleys = []
+        in_valley = False
+        v_start = 0
+        for i, below in enumerate(below_mask):
+            if below and not in_valley:
+                v_start = i
+                in_valley = True
+            elif not below and in_valley:
+                if i - v_start >= min_valley_frames:
+                    valleys.append((v_start, i))
+                in_valley = False
+        if in_valley and len(below_mask) - v_start >= min_valley_frames:
+            valleys.append((v_start, len(below_mask)))
+
+        if not valleys:
+            return [region]
+
+        # 按低谷切分 voiced 段，低谷处插入 silent 子段
+        sub_regions = []
+        cursor = start
+        for v_start, v_end in valleys:
+            abs_v_start = start + v_start
+            abs_v_end = start + v_end
+
+            if abs_v_start > cursor:
+                sub_regions.append({
+                    'voiced': True,
+                    'start_frame': cursor,
+                    'end_frame': abs_v_start,
+                })
+            sub_regions.append({
+                'voiced': False,
+                'start_frame': abs_v_start,
+                'end_frame': abs_v_end,
+            })
+            cursor = abs_v_end
+
+        if cursor < end:
+            sub_regions.append({
+                'voiced': True,
+                'start_frame': cursor,
+                'end_frame': end,
+            })
+
+        return sub_regions
 
     def generate_music(self, lyrics: str, style: str = "流行", duration: int = 30, reference_audio_url: str = "") -> Dict[str, Any]:
         """

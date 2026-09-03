@@ -1,7 +1,7 @@
 """
 唱段模型
 """
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -19,6 +19,7 @@ class OperaSegment(Base):
     accompaniment_url = Column(String(500))  # 纯伴奏音频 URL
     is_separated = Column(Boolean, default=False)  # 是否已完成人声/伴奏分离
     lyrics = Column(String(5000))  # 完整歌词
+    breath_timeline = Column(JSON)  # 气息时间线 [{type, start_time, end_time, duration}]
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

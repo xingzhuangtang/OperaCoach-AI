@@ -16,6 +16,31 @@ from app.models import User, OperaWork, OperaSegment, SegmentSlice, MusicGenerat
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
 
+# 迁移：为已有表添加新列（create_all 不会修改已有表结构）
+def _migrate_columns():
+    import sqlite3
+    from app.core.config import settings as _settings
+    db_path = _settings.DATABASE_URL.replace("sqlite:///", "")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        migrations = [
+            ("opera_segments", "breath_timeline", "JSON"),
+            ("segment_slices", "breath_timeline", "JSON"),
+        ]
+        for table, column, col_type in migrations:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                conn.commit()
+                print(f"[Migration] Added {table}.{column}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        conn.close()
+    except Exception:
+        pass
+
+_migrate_columns()
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,

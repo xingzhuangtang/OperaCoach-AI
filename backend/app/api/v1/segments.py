@@ -367,13 +367,13 @@ async def get_pitches(
     return {"slices": results}
 
 
-@router.get("/{segment_id}/breath-curve")
-async def get_breath_curve(
+@router.get("/{segment_id}/volume-curve")
+async def get_volume_curve(
     segment_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    提取所有切片的气息使用曲线（RMS 能量包络）
+    提取所有切片的音量变化曲线（RMS 能量包络）
     结果缓存到数据库，下次直接返回
     """
     from app.processors.audio import AudioProcessor
@@ -395,11 +395,11 @@ async def get_breath_curve(
     results = []
 
     for slice in slices:
-        if slice.breath_curve:
+        if slice.volume_curve:
             results.append({
                 "slice_id": slice.id,
                 "slice_index": slice.slice_index,
-                "breath_curve": slice.breath_curve
+                "volume_curve": slice.volume_curve
             })
             continue
 
@@ -407,7 +407,7 @@ async def get_breath_curve(
             results.append({
                 "slice_id": slice.id,
                 "slice_index": slice.slice_index,
-                "breath_curve": None
+                "volume_curve": None
             })
             continue
 
@@ -416,24 +416,128 @@ async def get_breath_curve(
             results.append({
                 "slice_id": slice.id,
                 "slice_index": slice.slice_index,
-                "breath_curve": None
+                "volume_curve": None
             })
             continue
 
         try:
-            breath_curve = processor.extract_breath_curve(str(audio_path))
-            slice.breath_curve = breath_curve
+            volume_curve = processor.extract_volume_curve(str(audio_path))
+            slice.volume_curve = volume_curve
             db.commit()
             results.append({
                 "slice_id": slice.id,
                 "slice_index": slice.slice_index,
-                "breath_curve": breath_curve
+                "volume_curve": volume_curve
             })
         except Exception as e:
             results.append({
                 "slice_id": slice.id,
                 "slice_index": slice.slice_index,
-                "breath_curve": None,
+                "volume_curve": None,
+                "error": str(e)
+            })
+
+    return {"slices": results}
+
+
+@router.get("/{segment_id}/breath-timeline")
+async def get_breath_timeline(
+    segment_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    检测唱段的气息时间线（吸气/呼气/换气）
+    结果缓存到数据库，下次直接返回。force=true 时强制重新计算
+    """
+    from app.processors.audio import AudioProcessor
+    from app.core.config import settings
+    from pathlib import Path
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    if segment.breath_timeline and not force:
+        return {"breath_timeline": segment.breath_timeline}
+
+    audio_url = segment.vocal_url if segment.is_separated and segment.vocal_url else segment.audio_url
+    if not audio_url:
+        raise HTTPException(status_code=400, detail="唱段没有音频文件")
+
+    audio_path = Path(settings.UPLOAD_DIR) / audio_url.removeprefix("/uploads/")
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="音频文件不存在")
+
+    try:
+        processor = AudioProcessor()
+        breath_timeline = processor.detect_breath_timeline(str(audio_path))
+        segment.breath_timeline = breath_timeline
+        db.commit()
+        return {"breath_timeline": breath_timeline}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{segment_id}/slices-breath-timeline")
+async def get_slices_breath_timeline(
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    获取所有切片的气息时间线（逐片检测，缓存到数据库）
+    """
+    from app.processors.audio import AudioProcessor
+    from app.core.config import settings
+    from pathlib import Path
+
+    segment = db.query(OperaSegment).filter(OperaSegment.id == segment_id).first()
+    if not segment:
+        raise HTTPException(status_code=404, detail="唱段不存在")
+
+    slices = db.query(SegmentSlice).filter(
+        SegmentSlice.segment_id == segment_id
+    ).order_by(SegmentSlice.slice_index).all()
+
+    if not slices:
+        raise HTTPException(status_code=400, detail="没有切片")
+
+    processor = AudioProcessor()
+    results = []
+
+    for slice in slices:
+        # 提取切片气息（每次重新计算以使用最新算法）
+        if not slice.audio_url:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_timeline": None
+            })
+            continue
+
+        audio_path = Path(settings.UPLOAD_DIR) / slice.audio_url.removeprefix("/uploads/")
+        if not audio_path.exists():
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_timeline": None
+            })
+            continue
+
+        try:
+            breath_timeline = processor.detect_breath_timeline(str(audio_path))
+            slice.breath_timeline = breath_timeline
+            db.commit()
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_timeline": breath_timeline
+            })
+        except Exception as e:
+            results.append({
+                "slice_id": slice.id,
+                "slice_index": slice.slice_index,
+                "breath_timeline": None,
                 "error": str(e)
             })
 

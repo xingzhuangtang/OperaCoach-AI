@@ -66,6 +66,7 @@ class OperaSegmentResponse(BaseModel):
     accompaniment_url: Optional[str]
     is_separated: bool
     lyrics: Optional[str]
+    breath_timeline: Optional[list] = None
 
     class Config:
         from_attributes = True
@@ -82,6 +83,8 @@ class SegmentSliceResponse(BaseModel):
     numbered_notation: Optional[str]
     commands: Optional[str]
     pitches: Optional[list]
+    volume_curve: Optional[list] = None
+    breath_timeline: Optional[list] = None
     audio_url: Optional[str]
 
     class Config:
@@ -96,6 +99,7 @@ class OperaSegmentDetailResponse(BaseModel):
     video_url: Optional[str]
     audio_url: Optional[str]
     lyrics: Optional[str]
+    breath_timeline: Optional[list] = None
     slices: List[SegmentSliceResponse] = []
 
     class Config:

@@ -12,6 +12,13 @@ export interface OperaWork {
   description?: string
 }
 
+export interface BreathEvent {
+  type: 'inhale' | 'exhale' | 'breath_change'
+  start_time: number
+  end_time: number
+  duration: number
+}
+
 export interface OperaSegment {
   id: number
   work_id: number
@@ -22,6 +29,7 @@ export interface OperaSegment {
   accompaniment_url: string | null
   is_separated: boolean
   lyrics: string | null
+  breath_timeline: BreathEvent[] | null
   slices: SegmentSlice[]
 }
 
@@ -35,7 +43,8 @@ export interface SegmentSlice {
   numbered_notation: string | null
   commands: string | null
   pitches: any[] | null
-  breath_curve: number[] | null
+  volume_curve: number[] | null
+  breath_timeline: BreathEvent[] | null
   audio_url: string | null
 }
 
