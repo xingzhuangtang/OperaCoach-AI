@@ -201,53 +201,6 @@ const setSlicePlaybackSpeed = (sliceId: number, speed: number) => {
   }
 }
 
-// 浮动参考面板
-const showChenziPanel = ref(false)
-const panelPosition = ref({ right: '20px', bottom: '20px' })
-const isDragging = ref(false)
-const dragOffset = ref({ x: 0, y: 0 })
-
-const chenziGuide = [
-  { char: '啊', pinyin: 'ā', desc: '练通道与打开', keywords: '宽广 通畅 宏大 垂直 敞亮' },
-  { char: '哎', pinyin: 'ái', desc: '练靠前与明亮', keywords: '清脆 鲜活 靠前 积极' },
-  { char: '咦', pinyin: 'yí', desc: '练高位置与面罩共鸣', keywords: '穿透 鲜亮 眉心震' },
-  { char: '呦', pinyin: 'yōu', desc: '练咽腔打开与声音竖立', keywords: '圆润 立体 空间 包满' },
-  { char: '呜', pinyin: 'wū', desc: '练喉头稳定与混声/掩盖', keywords: '温暖 深厚 暗 包裹感' },
-  { char: '啦', pinyin: 'lā', desc: '练舌头灵活与声音弹跳', keywords: '弹跳 灵活 颗粒 轻快' },
-  { char: '嘻', pinyin: 'xī', desc: '练气息下沉与轻巧高位置', keywords: '轻巧 叹气 弱声 集中' },
-]
-
-const panelStyle = computed(() => ({
-  right: panelPosition.value.right,
-  bottom: panelPosition.value.bottom,
-}))
-
-const startDrag = (e: MouseEvent) => {
-  isDragging.value = true
-  dragOffset.value = { x: e.clientX, y: e.clientY }
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('mouseup', stopDrag)
-}
-
-const onDrag = (e: MouseEvent) => {
-  if (!isDragging.value) return
-  const dx = e.clientX - dragOffset.value.x
-  const dy = e.clientY - dragOffset.value.y
-  dragOffset.value = { x: e.clientX, y: e.clientY }
-  const currentRight = parseInt(panelPosition.value.right) - dx
-  const currentBottom = parseInt(panelPosition.value.bottom) - dy
-  panelPosition.value = {
-    right: Math.max(0, currentRight) + 'px',
-    bottom: Math.max(0, currentBottom) + 'px',
-  }
-}
-
-const stopDrag = () => {
-  isDragging.value = false
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
-}
-
 const getSliceAudioUrl = (slice: SegmentSlice) => {
   if (sliceAudioMode.value === 'vocal' && segment.value?.vocal_url) {
     // 播放完整人声（仅当切片无音频时）
@@ -2376,35 +2329,6 @@ onMounted(() => {
     </el-dialog>
 
 
-    <!-- 浮动衬字参考面板 -->
-    <div class="chenzi-panel-wrapper" :style="panelStyle">
-      <transition name="panel-fade">
-        <div v-if="showChenziPanel" class="chenzi-floating-panel">
-          <div class="panel-header" @mousedown="startDrag">
-            <span class="panel-title">衬字发声指南</span>
-            <el-button size="small" text @click="showChenziPanel = false">✕</el-button>
-          </div>
-          <div class="panel-body">
-            <div v-for="item in chenziGuide" :key="item.char" class="guide-item">
-              <div class="guide-char-row">
-                <span class="guide-char">{{ item.char }}</span>
-                <span class="guide-pinyin">({{ item.pinyin }})</span>
-              </div>
-              <div class="guide-desc">{{ item.desc }}</div>
-              <div class="guide-keywords">{{ item.keywords }}</div>
-            </div>
-          </div>
-        </div>
-      </transition>
-      <el-button
-        class="chenzi-panel-toggle"
-        :type="showChenziPanel ? 'warning' : 'primary'"
-        circle
-        @click="showChenziPanel = !showChenziPanel"
-      >
-        {{ showChenziPanel ? '✕' : '参' }}
-      </el-button>
-    </div>
   </div>
 </template>
 
@@ -3151,112 +3075,6 @@ onMounted(() => {
   width: 24px;
   height: 24px;
   padding: 0;
-}
-
-/* 浮动衬字参考面板 */
-.chenzi-panel-wrapper {
-  position: fixed;
-  z-index: 1000;
-}
-
-.chenzi-panel-toggle {
-  width: 48px;
-  height: 48px;
-  font-size: 16px;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.chenzi-floating-panel {
-  position: absolute;
-  bottom: 60px;
-  right: 0;
-  width: 280px;
-  max-height: 500px;
-  background: rgba(26, 26, 46, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(184, 134, 11, 0.3);
-  overflow: hidden;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(184, 134, 11, 0.1), rgba(58, 90, 120, 0.1));
-  border-bottom: 1px solid rgba(184, 134, 11, 0.2);
-  cursor: move;
-  user-select: none;
-}
-
-.panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #b8860b;
-  letter-spacing: 2px;
-}
-
-.panel-body {
-  padding: 12px;
-  max-height: 420px;
-  overflow-y: auto;
-}
-
-.guide-item {
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
-  border-left: 3px solid #b8860b;
-}
-
-.guide-item:last-child {
-  margin-bottom: 0;
-}
-
-.guide-char-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.guide-char {
-  font-size: 20px;
-  font-weight: 700;
-  color: #b8860b;
-}
-
-.guide-pinyin {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.guide-desc {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-  margin-bottom: 2px;
-}
-
-.guide-keywords {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  line-height: 1.4;
-}
-
-/* 面板动画 */
-.panel-fade-enter-active,
-.panel-fade-leave-active {
-  transition: opacity 0.3s, transform 0.3s;
-}
-
-.panel-fade-enter-from,
-.panel-fade-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
 }
 
 /* 音高火花线可点击 */

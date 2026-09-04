@@ -45,6 +45,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/practice',
+    name: 'Practice',
+    component: () => import('@/views/PracticeView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/works/:workId/segments',
     name: 'SegmentsByWork',
     component: () => import('@/views/SegmentsByWorkView.vue'),

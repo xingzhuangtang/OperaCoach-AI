@@ -3,7 +3,7 @@ API 路由
 """
 from fastapi import APIRouter
 
-from app.api.v1 import auth, upload, segments, chenzi, music
+from app.api.v1 import auth, upload, segments, chenzi, music, tts
 
 router = APIRouter()
 
@@ -13,3 +13,4 @@ router.include_router(upload.router, prefix="/upload", tags=["上传"])
 router.include_router(segments.router, prefix="/segments", tags=["唱段"])
 router.include_router(chenzi.router, prefix="/chenzi", tags=["衬字谱"])
 router.include_router(music.router, prefix="/music", tags=["AI 作曲"])
+router.include_router(tts.router, prefix="/tts", tags=["语音合成"])

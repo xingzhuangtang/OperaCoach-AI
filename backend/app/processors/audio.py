@@ -644,6 +644,55 @@ class AudioProcessor:
 
         return slices
 
+    def text_to_speech(self, text: str, voice: str = "longxiaochun") -> Dict[str, Any]:
+        """
+        调用 DashScope CosyVoice SDK 进行语音合成
+        参数:
+            text: 要合成的文本
+            voice: 音色名称（longxiaochun/longyue/longshuo 等）
+        返回:
+            {"status": "success", "audio_url": "..."} 或 {"status": "failed", "error": "..."}
+        """
+        import hashlib
+        from pathlib import Path
+        from app.core.config import settings
+
+        api_key = settings.DASHSCOPE_API_KEY
+        if not api_key:
+            return {"status": "failed", "error": "DASHSCOPE_API_KEY 未配置"}
+
+        cache_key = hashlib.md5(f"{text}_{voice}".encode()).hexdigest()
+        output_dir = Path(settings.UPLOAD_DIR) / "tts"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = output_dir / f"{cache_key}.mp3"
+
+        if cache_file.exists():
+            relative_url = f"/uploads/tts/{cache_key}.mp3"
+            print(f"[TTS] 使用缓存: {relative_url}")
+            return {"status": "success", "audio_url": relative_url, "cached": True}
+
+        try:
+            print(f"[TTS] 开始合成: {text[:20]}... (音色: {voice})")
+            import dashscope
+            from dashscope.audio.tts_v2 import SpeechSynthesizer
+
+            dashscope.api_key = api_key
+            synthesizer = SpeechSynthesizer(model="cosyvoice-v1", voice=voice)
+            audio = synthesizer.call(text)
+
+            if not audio or len(audio) == 0:
+                return {"status": "failed", "error": "未获取到音频数据"}
+
+            with open(cache_file, "wb") as f:
+                f.write(audio)
+
+            relative_url = f"/uploads/tts/{cache_key}.mp3"
+            print(f"[TTS] 合成成功: {relative_url}")
+            return {"status": "success", "audio_url": relative_url, "cached": False}
+
+        except Exception as e:
+            return {"status": "failed", "error": f"合成失败: {str(e)}"}
+
 
 class AudioSlicer(AudioProcessor):
     """音频切片器"""

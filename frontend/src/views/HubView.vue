@@ -25,6 +25,13 @@ const sections = [
     route: '/works',
     action: '进入唱段',
   },
+  {
+    title: 'AI陪练',
+    desc: '每日发声练习与衬字训练',
+    icon: 'M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z',
+    route: '/practice',
+    action: '开始练习',
+  },
 ]
 </script>
 
@@ -161,6 +168,7 @@ const sections = [
 
 .hub-cards {
   display: flex;
+  flex-wrap: wrap;
   gap: 32px;
   justify-content: center;
 }

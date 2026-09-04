@@ -1,11 +1,13 @@
 <template>
   <div class="app-bg" :style="bgStyle"></div>
   <router-view />
+  <ChenziGuidePanel />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import ChenziGuidePanel from '@/components/ChenziGuidePanel.vue'
 
 const route = useRoute()
 

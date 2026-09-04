@@ -129,3 +129,64 @@ export async function playMelody(notation: string, totalDuration: number): Promi
     noteTimers.push(timer)
   })
 }
+
+const CHENZI_FREQUENCIES: Record<string, number> = {
+  '啊': 261.63, '哎': 293.66, '咦': 329.63, '呦': 349.23,
+  '呜': 392.00, '啦': 440.00, '嘻': 493.88,
+}
+
+let chenziOscillator: OscillatorNode | null = null
+let chenziGain: GainNode | null = null
+
+export async function playChenziTone(char: string, duration: number = 3): Promise<void> {
+  const freq = CHENZI_FREQUENCIES[char]
+  if (!freq) return
+
+  stopChenziTone()
+
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') await ctx.resume()
+
+  const oscillator = ctx.createOscillator()
+  const gain = ctx.createGain()
+
+  oscillator.type = 'triangle'
+  oscillator.frequency.setValueAtTime(freq, ctx.currentTime)
+
+  const attack = 0.15
+  const sustain = 0.35
+  const release = Math.min(0.4, duration * 0.3)
+
+  gain.gain.setValueAtTime(0, ctx.currentTime)
+  gain.gain.linearRampToValueAtTime(sustain, ctx.currentTime + attack)
+  gain.gain.setValueAtTime(sustain, ctx.currentTime + duration - release)
+  gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration)
+
+  oscillator.connect(gain)
+  gain.connect(ctx.destination)
+
+  oscillator.start(ctx.currentTime)
+  oscillator.stop(ctx.currentTime + duration)
+
+  chenziOscillator = oscillator
+  chenziGain = gain
+
+  return new Promise(resolve => {
+    setTimeout(() => {
+      chenziOscillator = null
+      chenziGain = null
+      resolve()
+    }, duration * 1000)
+  })
+}
+
+export function stopChenziTone(): void {
+  if (chenziOscillator) {
+    try { chenziOscillator.stop() } catch {}
+    chenziOscillator = null
+  }
+  if (chenziGain) {
+    chenziGain.disconnect()
+    chenziGain = null
+  }
+}
